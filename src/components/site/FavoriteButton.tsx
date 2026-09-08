@@ -12,11 +12,13 @@ export function FavoriteButton({ listingId }: { listingId: string }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    let active = true;
     if (!user) {
       setSaved(false);
-      return;
+      return () => {
+        active = false;
+      };
     }
-    let active = true;
     supabase
       .from("favorites")
       .select("id")
@@ -44,7 +46,10 @@ export function FavoriteButton({ listingId }: { listingId: string }) {
         .eq("listing_id", listingId)
         .eq("user_id", user.id);
       setBusy(false);
-      if (error) return toast.error(error.message);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
       setSaved(false);
       return;
     }
@@ -52,7 +57,10 @@ export function FavoriteButton({ listingId }: { listingId: string }) {
       .from("favorites")
       .insert({ listing_id: listingId, user_id: user.id });
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     setSaved(true);
     toast.success("Saved to your favourites.");
   }

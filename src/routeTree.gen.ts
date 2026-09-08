@@ -19,6 +19,7 @@ import { Route as RiskDisclosureRouteImport } from './routes/risk-disclosure'
 import { Route as StatusRouteImport } from './routes/status'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TrustSafetyRouteImport } from './routes/trust-safety'
+import { Route as ItemSlugRouteImport } from './routes/item.$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -70,6 +71,11 @@ const TrustSafetyRoute = TrustSafetyRouteImport.update({
   path: '/trust-safety',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ItemSlugRoute = ItemSlugRouteImport.update({
+  id: '/item/$slug',
+  path: '/item/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/item/$slug': typeof ItemSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/item/$slug': typeof ItemSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/item/$slug': typeof ItemSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/item/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +143,7 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/item/$slug'
   id:
     | '__root__'
     | '/'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/item/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +170,7 @@ export interface RootRouteChildren {
   StatusRoute: typeof StatusRoute
   TermsRoute: typeof TermsRoute
   TrustSafetyRoute: typeof TrustSafetyRoute
+  ItemSlugRoute: typeof ItemSlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -232,6 +245,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrustSafetyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/item/$slug': {
+      id: '/item/$slug'
+      path: '/item/$slug'
+      fullPath: '/item/$slug'
+      preLoaderRoute: typeof ItemSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -246,6 +266,7 @@ const rootRouteChildren: RootRouteChildren = {
   StatusRoute: StatusRoute,
   TermsRoute: TermsRoute,
   TrustSafetyRoute: TrustSafetyRoute,
+  ItemSlugRoute: ItemSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
