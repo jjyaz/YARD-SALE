@@ -211,7 +211,16 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
         contentType: "application/json",
       });
     if (uploadError) throw new Error(`Metadata upload failed: ${uploadError.message}`);
-    const metadataUri = db.storage.from(METADATA_BUCKET).getPublicUrl(path).data.publicUrl;
+    // The bucket is private (public buckets are blocked for this workspace), so the
+    // passport points at a long-lived signed URL. The metadata hash below is what
+    // makes the content verifiable, not the URL.
+    const { data: signed, error: signError } = await db.storage
+      .from(METADATA_BUCKET)
+      .createSignedUrl(path, 60 * 60 * 24 * 365 * 5);
+    if (signError || !signed?.signedUrl) {
+      throw new Error(`Metadata URL could not be created: ${signError?.message ?? "unknown error"}`);
+    }
+    const metadataUri = signed.signedUrl;
 
     const row = {
       listing_id: listing.id,
