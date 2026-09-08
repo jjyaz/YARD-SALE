@@ -10,6 +10,6 @@
     "outDir": "dist",
     "types": ["node", "mocha"]
   },
-  "include": ["hardhat.config.ts", "scripts", "test", "lib"],
+  "include": ["hardhat.config.ts", "scripts", "test", "lib", "typechain-types"],
   "files": ["hardhat.config.ts"]
 }

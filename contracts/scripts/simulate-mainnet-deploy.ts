@@ -8,6 +8,7 @@
  * MAINNET_ADMIN_ADDRESS is optional here; a second Hardhat account is used when it is absent.
  */
 import hre from "hardhat";
+import type { Contract } from "ethers";
 import { MAINNET_CHAIN_ID, printChecks, requireChain, runDeployment, validateDeployment } from "../lib/deploy-core";
 
 const log = (line: string) => console.log(line);
@@ -53,14 +54,12 @@ async function main() {
   const factory = await hre.ethers.getContractAt("YardTokenFactory", record.contracts.factory!.address);
   const seller = (await hre.ethers.getSigners())[3];
   const listingId = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("simulation-listing"));
-  const mintTx = await registry
-    .connect(seller)
-    .mintPassport(await seller.getAddress(), listingId, "ipfs://simulation", hre.ethers.id("m"), hre.ethers.id("t"));
+  const sellerRegistry = registry.connect(seller) as unknown as Contract;
+  const sellerFactory = factory.connect(seller) as unknown as Contract;
+  const mintTx = await sellerRegistry.mintPassport(await seller.getAddress(), listingId, "ipfs://simulation", hre.ethers.id("m"), hre.ethers.id("t"));
   await mintTx.wait();
   const tokenId = await registry.tokenIdForListing(listingId);
-  const createTx = await factory
-    .connect(seller)
-    .createCompanionToken(tokenId, "Sim Token", "SIM", hre.ethers.parseEther("1000"), hre.ethers.parseEther("400"));
+  const createTx = await sellerFactory.createCompanionToken(tokenId, "Sim Token", "SIM", hre.ethers.parseEther("1000"), hre.ethers.parseEther("400"));
   await createTx.wait();
   const token = await registry.companionTokenOf(tokenId);
   log(`Simulated passport #${tokenId} paired with ${token}`);
