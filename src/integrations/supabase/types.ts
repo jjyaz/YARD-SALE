@@ -14,6 +14,90 @@ export type Database = {
   }
   public: {
     Tables: {
+      companion_tokens: {
+        Row: {
+          block_number: number | null
+          chain_id: number
+          confirmed_at: string | null
+          created_at: string
+          creator_allocation: number
+          disclaimer_accepted_at: string
+          factory_address: string
+          failure_reason: string | null
+          id: string
+          listing_id: string
+          name: string
+          passport_id: string
+          status: string
+          symbol: string
+          token_address: string | null
+          total_supply: number
+          tx_hash: string | null
+          updated_at: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          block_number?: number | null
+          chain_id: number
+          confirmed_at?: string | null
+          created_at?: string
+          creator_allocation: number
+          disclaimer_accepted_at?: string
+          factory_address: string
+          failure_reason?: string | null
+          id?: string
+          listing_id: string
+          name: string
+          passport_id: string
+          status?: string
+          symbol: string
+          token_address?: string | null
+          total_supply: number
+          tx_hash?: string | null
+          updated_at?: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          block_number?: number | null
+          chain_id?: number
+          confirmed_at?: string | null
+          created_at?: string
+          creator_allocation?: number
+          disclaimer_accepted_at?: string
+          factory_address?: string
+          failure_reason?: string | null
+          id?: string
+          listing_id?: string
+          name?: string
+          passport_id?: string
+          status?: string
+          symbol?: string
+          token_address?: string | null
+          total_supply?: number
+          tx_hash?: string | null
+          updated_at?: string
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "companion_tokens_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "companion_tokens_passport_id_fkey"
+            columns: ["passport_id"]
+            isOneToOne: true
+            referencedRelation: "item_passports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       favorites: {
         Row: {
           created_at: string
@@ -38,6 +122,83 @@ export type Database = {
             foreignKeyName: "favorites_listing_id_fkey"
             columns: ["listing_id"]
             isOneToOne: false
+            referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      item_passports: {
+        Row: {
+          block_number: number | null
+          chain_id: number
+          confirmed_at: string | null
+          contract_address: string
+          created_at: string
+          failure_reason: string | null
+          id: string
+          image_hashes: Json
+          listing_id: string
+          listing_key: string
+          metadata_hash: string
+          metadata_snapshot: Json
+          metadata_uri: string
+          status: string
+          terms_hash: string
+          token_id: number | null
+          tx_hash: string | null
+          updated_at: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          block_number?: number | null
+          chain_id: number
+          confirmed_at?: string | null
+          contract_address: string
+          created_at?: string
+          failure_reason?: string | null
+          id?: string
+          image_hashes?: Json
+          listing_id: string
+          listing_key: string
+          metadata_hash: string
+          metadata_snapshot?: Json
+          metadata_uri: string
+          status?: string
+          terms_hash: string
+          token_id?: number | null
+          tx_hash?: string | null
+          updated_at?: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          block_number?: number | null
+          chain_id?: number
+          confirmed_at?: string | null
+          contract_address?: string
+          created_at?: string
+          failure_reason?: string | null
+          id?: string
+          image_hashes?: Json
+          listing_id?: string
+          listing_key?: string
+          metadata_hash?: string
+          metadata_snapshot?: Json
+          metadata_uri?: string
+          status?: string
+          terms_hash?: string
+          token_id?: number | null
+          tx_hash?: string | null
+          updated_at?: string
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_passports_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: true
             referencedRelation: "listings"
             referencedColumns: ["id"]
           },
