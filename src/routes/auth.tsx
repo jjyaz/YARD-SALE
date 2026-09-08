@@ -3,12 +3,11 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { useSession } from "@/hooks/useSession";
+import { defaultChain } from "@/lib/chain";
+import { requestSignInNonce, verifyWalletSignIn } from "@/lib/wallet-auth.functions";
+import { shortAddress } from "@/lib/listing-meta";
 
 type AuthSearch = { redirect?: string | undefined };
 
@@ -18,17 +17,31 @@ export const Route = createFileRoute("/auth")({
   }),
   head: () => ({
     meta: [
-      { title: "Sign in or create an account — YARD SALE" },
+      { title: "Sign in with your wallet — YARD SALE" },
       {
         name: "description",
-        content: "Sign in to list items, save favourites and manage your yard on YARD SALE.",
+        content:
+          "Sign in to YARD SALE by signing a free message with your EVM wallet on Robinhood Chain. No email, no password.",
       },
-      { property: "og:title", content: "Sign in — YARD SALE" },
-      { property: "og:description", content: "Access your YARD SALE account." },
+      { property: "og:title", content: "Sign in with your wallet — YARD SALE" },
+      {
+        property: "og:description",
+        content: "Wallet sign-in for YARD SALE on Robinhood Chain.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: AuthPage,
 });
+
+type Eip1193 = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
+
+function injectedProvider(): Eip1193 | null {
+  return (globalThis as unknown as { ethereum?: Eip1193 }).ethereum ?? null;
+}
 
 function safePath(value: string | undefined): string {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
@@ -39,10 +52,8 @@ function AuthPage() {
   const { redirect } = Route.useSearch();
   const navigate = useNavigate();
   const { user, loading } = useSession();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [step, setStep] = useState<string | null>(null);
 
   const destination = safePath(redirect);
 
@@ -52,144 +63,74 @@ function AuthPage() {
     }
   }, [loading, user, destination, navigate]);
 
-  async function signIn(event: React.FormEvent) {
-    event.preventDefault();
+  async function signInWithWallet() {
+    const provider = injectedProvider();
+    if (!provider) {
+      toast.error("No browser wallet found. Install an EVM wallet extension and try again.");
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    navigate({ to: destination, replace: true });
-  }
+    try {
+      setStep("Waiting for your wallet…");
+      const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
+      const address = accounts[0];
+      if (!address) throw new Error("No account was shared by the wallet.");
 
-  async function signUp(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: `${window.location.origin}${destination}` },
-    });
-    setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    if (!data.session) {
-      setSentTo(email);
-      return;
-    }
-    navigate({ to: destination, replace: true });
-  }
+      setStep(`Requesting a challenge for ${shortAddress(address)}…`);
+      const { message, nonce } = await requestSignInNonce({
+        data: { address, chainId: defaultChain.id },
+      });
 
-  async function google() {
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: `${window.location.origin}/auth${redirect ? `?redirect=${encodeURIComponent(destination)}` : ""}`,
-    });
-    if (result.error) {
-      toast.error("Google sign-in could not start. Try email instead.");
-      return;
+      setStep("Sign the message in your wallet.");
+      const signature = (await provider.request({
+        method: "personal_sign",
+        params: [message, address],
+      })) as string;
+
+      setStep("Verifying your signature…");
+      const { tokenHash } = await verifyWalletSignIn({
+        data: { address, chainId: defaultChain.id, nonce, message, signature },
+      });
+
+      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "email" });
+      if (error) throw new Error(error.message);
+
+      toast.success("Signed in with your wallet.");
+      navigate({ to: destination, replace: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Wallet sign-in failed.");
+    } finally {
+      setStep(null);
+      setBusy(false);
     }
-    if (result.redirected) return;
-    navigate({ to: destination, replace: true });
   }
 
   return (
     <div className="mx-auto flex max-w-md flex-col px-4 py-16 sm:px-6">
-      <h1 className="text-3xl font-extrabold">Welcome to the yard</h1>
+      <h1 className="text-3xl font-extrabold">Sign in with your wallet</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        An account lets you list items, save favourites and manage pickups.
+        YARD SALE uses your EVM wallet on {defaultChain.name} as your account. No email, no
+        password — just one free signature.
       </p>
 
-      {sentTo ? (
-        <div className="mt-8 rounded-xl border border-border bg-card p-6">
-          <p className="text-sm font-semibold">Check your email</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            We sent a confirmation link to {sentTo}. You'll be signed in once you confirm.
-          </p>
-        </div>
-      ) : (
-        <Tabs defaultValue="signin" className="mt-8">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="signin">Sign in</TabsTrigger>
-            <TabsTrigger value="signup">Create account</TabsTrigger>
-          </TabsList>
+      <div className="mt-8 rounded-xl border border-border bg-card p-6">
+        <Button className="w-full" disabled={busy} onClick={() => void signInWithWallet()}>
+          {busy ? "Waiting for wallet…" : "Connect wallet & sign in"}
+        </Button>
+        {step ? <p className="mt-3 text-xs text-muted-foreground">{step}</p> : null}
 
-          <TabsContent value="signin">
-            <form onSubmit={signIn} className="space-y-4 rounded-xl border border-border bg-card p-6">
-              <div className="space-y-2">
-                <Label htmlFor="signin-email">Email</Label>
-                <Input
-                  id="signin-email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signin-password">Password</Label>
-                <Input
-                  id="signin-password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? "Signing in…" : "Sign in"}
-              </Button>
-            </form>
-          </TabsContent>
-
-          <TabsContent value="signup">
-            <form onSubmit={signUp} className="space-y-4 rounded-xl border border-border bg-card p-6">
-              <div className="space-y-2">
-                <Label htmlFor="signup-email">Email</Label>
-                <Input
-                  id="signup-email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signup-password">Password</Label>
-                <Input
-                  id="signup-password"
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={8}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">At least 8 characters.</p>
-              </div>
-              <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? "Creating account…" : "Create account"}
-              </Button>
-            </form>
-          </TabsContent>
-        </Tabs>
-      )}
-
-      <div className="mt-6 flex items-center gap-3">
-        <span className="h-px flex-1 bg-border" />
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
-        <span className="h-px flex-1 bg-border" />
+        <ul className="mt-6 space-y-2 text-xs text-muted-foreground">
+          <li>Signing costs nothing and sends no transaction.</li>
+          <li>It grants no spending permission over your funds.</li>
+          <li>We never ask for a seed phrase or private key.</li>
+          <li>First sign-in creates your yard automatically.</li>
+        </ul>
       </div>
 
-      <Button variant="outline" className="mt-6 w-full" onClick={() => void google()}>
-        Continue with Google
-      </Button>
+      <p className="mt-6 text-xs text-muted-foreground">
+        No wallet yet? Install an EVM browser wallet, then add {defaultChain.name} (chain ID{" "}
+        {defaultChain.id}) and come back here.
+      </p>
     </div>
   );
 }

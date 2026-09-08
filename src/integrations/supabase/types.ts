@@ -458,7 +458,7 @@ export type Database = {
           expires_at: string
           id: string
           nonce_hash: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           address?: string | null
@@ -469,7 +469,7 @@ export type Database = {
           expires_at: string
           id?: string
           nonce_hash: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           address?: string | null
@@ -480,7 +480,7 @@ export type Database = {
           expires_at?: string
           id?: string
           nonce_hash?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: []
       }
