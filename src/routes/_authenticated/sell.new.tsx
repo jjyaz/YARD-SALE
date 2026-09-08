@@ -331,17 +331,44 @@ function SellWizard() {
               <p className="mt-1 text-xs text-muted-foreground">
                 At least one photo of the actual item. Up to 8, 10MB each.
               </p>
-              <div className="mt-3 flex items-center gap-3">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  void uploadPhotos(e.dataTransfer.files);
+                }}
+                className={`mt-3 rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+                  dragging ? "border-primary bg-secondary" : "border-border"
+                }`}
+              >
+                <Upload className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                <p className="mt-2 text-sm font-medium">Drag and drop photos here</p>
+                <p className="text-xs text-muted-foreground">or choose files from your device</p>
                 <Input
                   id="photos"
                   type="file"
                   accept="image/*"
                   multiple
-                  onChange={(e) => void uploadPhotos(e.target.files)}
+                  className="mx-auto mt-3 max-w-xs"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    void uploadPhotos(e.target.files);
+                    e.target.value = "";
+                  }}
                 />
-                <Upload className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                {uploading ? (
+                  <p className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Uploading photos…
+                  </p>
+                ) : null}
               </div>
             </div>
+
             {media.length > 0 ? (
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {media.map((row) => (
