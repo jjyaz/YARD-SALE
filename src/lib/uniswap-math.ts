@@ -83,7 +83,9 @@ export function formatFixed(value: bigint, decimals = 18, maxFraction = decimals
 export function parseFixed(value: string, decimals = 18): bigint {
   const trimmed = value.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) throw new Error(`"${value}" is not a valid amount.`);
-  const [wholePart, fractionPart = ""] = trimmed.split(".");
+  const dot = trimmed.indexOf(".");
+  const wholePart = dot === -1 ? trimmed : trimmed.slice(0, dot);
+  const fractionPart = dot === -1 ? "" : trimmed.slice(dot + 1);
   if (fractionPart.length > decimals) throw new Error(`Too many decimal places (max ${decimals}).`);
   return BigInt(wholePart) * 10n ** BigInt(decimals) + BigInt(fractionPart.padEnd(decimals, "0") || "0");
 }
