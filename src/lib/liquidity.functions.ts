@@ -1,10 +1,33 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { Log, decodeEventLog as DecodeEventLog, getAddress as GetAddress } from "viem";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Database } from "@/integrations/supabase/types";
 import { isHexAddress } from "@/config/env";
 import { companionTokenAbi } from "@/lib/abi";
 import { nonfungiblePositionManagerAbi, uniswapV3FactoryAbi, uniswapV3PoolAbi, weth9Abi } from "@/lib/uniswap-abi";
 import { buildLiquidityPlan, parseFixed, priceFromSqrtPriceX96 } from "@/lib/uniswap-math";
+
+type LiquidityUpdate = Database["public"]["Tables"]["liquidity_positions"]["Update"];
+type IncreaseLiquidityArgs = { tokenId: bigint; liquidity: bigint; amount0: bigint; amount1: bigint };
+
+function findIncreaseLiquidity(
+  logs: readonly Log[],
+  positionManager: `0x${string}`,
+  decode: typeof DecodeEventLog,
+  checksum: typeof GetAddress,
+): IncreaseLiquidityArgs | null {
+  for (const log of logs) {
+    if (checksum(log.address) !== positionManager) continue;
+    try {
+      const decoded = decode({ abi: nonfungiblePositionManagerAbi, data: log.data, topics: log.topics });
+      if (decoded.eventName === "IncreaseLiquidity") return decoded.args as unknown as IncreaseLiquidityArgs;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 
 /**
  * Optional Uniswap v3 liquidity step for a verified Companion Token (mainnet only).
@@ -448,12 +471,9 @@ export const recordLiquidityStep = createServerFn({ method: "POST" })
     if (position.step !== data.step) throw new Error(`The plan is at step "${position.step}", not "${data.step}".`);
     const column = STEP_TX_COLUMN[data.step as Exclude<LiquidityStep, "done">];
     if (position[column] && position[column] !== data.txHash) throw new Error("A different transaction is already recorded for this step.");
-    const { data: saved, error } = await db
-      .from("liquidity_positions")
-      .update({ [column]: data.txHash, status: "in_progress", failure_reason: null })
-      .eq("id", position.id)
-      .select("*")
-      .single();
+    const update: LiquidityUpdate = { status: "in_progress", failure_reason: null };
+    update[column] = data.txHash;
+    const { data: saved, error } = await db.from("liquidity_positions").update(update).eq("id", position.id).select("*").single();
     if (error) throw new Error(error.message);
     return saved;
   });
@@ -484,12 +504,9 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
       return { outcome: "pending" as const, position, message: "The transaction has not been mined yet. Check again shortly." };
     }
     if (receipt.status !== "success") {
-      const { data: failed } = await db
-        .from("liquidity_positions")
-        .update({ status: "failed", failure_reason: `The ${step.replace("_", " ")} transaction reverted on-chain.`, [column]: null })
-        .eq("id", position.id)
-        .select("*")
-        .single();
+      const failedUpdate: LiquidityUpdate = { status: "failed", failure_reason: `The ${step.replace("_", " ")} transaction reverted on-chain.` };
+      failedUpdate[column] = null;
+      const { data: failed } = await db.from("liquidity_positions").update(failedUpdate).eq("id", position.id).select("*").single();
       return { outcome: "failed" as const, position: failed, message: `The ${step.replace("_", " ")} transaction reverted.` };
     }
 
@@ -528,19 +545,7 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
       }
       await db.from("liquidity_positions").update({ pool_address: poolAddress.toLowerCase() }).eq("id", position.id);
     } else if (step === "mint") {
-      let minted: { tokenId: bigint; liquidity: bigint; amount0: bigint; amount1: bigint } | null = null;
-      for (const log of receipt.logs) {
-        if (getAddress(log.address) !== pm) continue;
-        try {
-          const decoded = decodeEventLog({ abi: nonfungiblePositionManagerAbi, data: log.data, topics: log.topics });
-          if (decoded.eventName === "IncreaseLiquidity") {
-            minted = decoded.args as unknown as typeof minted;
-            break;
-          }
-        } catch {
-          continue;
-        }
-      }
+      const minted = findIncreaseLiquidity(receipt.logs, pm, decodeEventLog, getAddress);
       if (!minted) throw new Error("The transaction succeeded but no IncreaseLiquidity event was emitted by the position manager. Nothing was saved.");
       const [owner, pos, poolAddress] = await Promise.all([
         client.readContract({ address: pm, abi: nonfungiblePositionManagerAbi, functionName: "ownerOf", args: [minted.tokenId] }),
