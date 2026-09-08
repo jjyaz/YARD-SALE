@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import hre from "hardhat";
+import type { Contract } from "ethers";
 import { runDeployment, validateDeployment, emptyRecord } from "../lib/deploy-core";
 
 describe("Deployment core (local simulation)", () => {
@@ -41,24 +42,25 @@ describe("Deployment core (local simulation)", () => {
     // The system works for a seller after handover.
     const registry = await hre.ethers.getContractAt("YardSaleAssetRegistry", record.contracts.registry!.address);
     const factory = await hre.ethers.getContractAt("YardTokenFactory", record.contracts.factory!.address);
+    const as = (c: unknown, signer: unknown) => (c as Contract).connect(signer as never) as unknown as Contract;
     const listing = hre.ethers.id("post-handover");
-    await registry.connect(seller).mintPassport(seller.address, listing, "ipfs://x", hre.ethers.id("m"), hre.ethers.id("t"));
+    await as(registry, seller).mintPassport(seller.address, listing, "ipfs://x", hre.ethers.id("m"), hre.ethers.id("t"));
     const tokenId = await registry.tokenIdForListing(listing);
-    await factory.connect(seller).createCompanionToken(tokenId, "Post", "POST", 1000n, 1000n);
+    await as(factory, seller).createCompanionToken(tokenId, "Post", "POST", 1000n, 1000n);
     expect(await registry.companionTokenOf(tokenId)).to.equal(await factory.tokenForPassport(tokenId));
 
     // Deployer can no longer administer anything.
-    await expect(registry.connect(deployer).pause()).to.be.revertedWithCustomError(
+    await expect(as(registry, deployer).pause()).to.be.revertedWithCustomError(
       registry,
       "AccessControlUnauthorizedAccount",
     );
-    await expect(factory.connect(deployer).pause()).to.be.revertedWithCustomError(
+    await expect(as(factory, deployer).pause()).to.be.revertedWithCustomError(
       factory,
       "AccessControlUnauthorizedAccount",
     );
     // Admin can.
-    await registry.connect(admin).pause();
-    await registry.connect(admin).unpause();
+    await as(registry, admin).pause();
+    await as(registry, admin).unpause();
   });
 
   it("flags a broken record", async () => {
