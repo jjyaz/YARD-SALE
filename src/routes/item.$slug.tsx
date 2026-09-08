@@ -7,7 +7,7 @@ import { ListingCard, StatusChip } from "@/components/site/ListingCard";
 import { ReportDialog } from "@/components/site/ReportDialog";
 import { FavoriteButton } from "@/components/site/FavoriteButton";
 import { Button } from "@/components/ui/button";
-import { coverFor, demoCover } from "@/lib/demo-images";
+import { coverFor, demoSecondary } from "@/lib/demo-images";
 import { approxFiat, categoryLabel, conditionLabel, formatEth } from "@/lib/listing-meta";
 import { getListingBySlug } from "@/lib/marketplace.functions";
 
@@ -58,7 +58,7 @@ function ItemDetail() {
   const gallery =
     listing.media.filter((m) => m.public_url).map((m) => m.public_url as string).length > 0
       ? listing.media.filter((m) => m.public_url).map((m) => m.public_url as string)
-      : [coverFor(listing), demoCover(`${listing.slug}-b`)];
+      : [coverFor(listing), demoSecondary(listing.slug)];
 
   const fiat = approxFiat(listing.price_eth, listing.is_free);
   const soldOrGone = listing.status === "sold" || listing.status === "redeemed";
