@@ -3,6 +3,7 @@ import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
 import { ArrowRight, Camera, HandCoins, MapPin, ShieldCheck } from "lucide-react";
 
 import logo from "@/assets/yard-sale-official-lockup.png.asset.json";
+import banner from "@/assets/yard-sale-banner.png.asset.json";
 import { yardImages } from "@/lib/demo-images";
 import { ListingCard } from "@/components/site/ListingCard";
 import { Button } from "@/components/ui/button";
