@@ -104,7 +104,7 @@ export function WalletPanel() {
               </div>
               <div className="flex items-center gap-3">
                 <a
-                  href={explorerAddressUrl(wallet.address, wallet.chain_id)}
+                  href={explorerAddressUrl(wallet.chain_id, wallet.address)}
                   target="_blank"
                   rel="noreferrer noopener"
                   className="text-sm underline underline-offset-4"
