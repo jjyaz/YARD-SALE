@@ -109,7 +109,7 @@ export const getTokenPage = createServerFn({ method: "POST" })
         totalSupply: totalSupply.toString(),
         passportTokenId: passportTokenId.toString(),
         creatorBalance: creatorBalance.toString(),
-        offerSellerBalance: offerSellerBalance?.toString(),
+        ...(offerSellerBalance === undefined ? {} : { offerSellerBalance: offerSellerBalance.toString() }),
       };
     } catch (error) {
       onchain = { ok: false, error: error instanceof Error ? error.message : "Could not reach the network." };
