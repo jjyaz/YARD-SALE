@@ -78,6 +78,8 @@ function SellWizard() {
   const [pickup, setPickup] = useState({ exact_address: "", instructions: "", contact_note: "" });
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load or create the draft row.
