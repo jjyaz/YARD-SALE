@@ -41,7 +41,7 @@ const ROLE = {
   pauser: keccak256(toBytes("PAUSER_ROLE")),
 };
 
-export function rpcClient(chainId = publicEnv.activeChainId): PublicClient {
+export function rpcClient(chainId: number = publicEnv.activeChainId): PublicClient {
   const chain = chainById(chainId);
   return createPublicClient({ chain, transport: http(chain.rpcUrls.default.http[0], { timeout: 20_000 }) });
 }
