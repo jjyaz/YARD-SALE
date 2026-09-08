@@ -3,6 +3,7 @@ import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
 import { ArrowRight, Camera, HandCoins, MapPin, ShieldCheck } from "lucide-react";
 
 import logo from "@/assets/yard-sale-official-lockup.png.asset.json";
+import banner from "@/assets/yard-sale-banner.png.asset.json";
 import { yardImages } from "@/lib/demo-images";
 import { ListingCard } from "@/components/site/ListingCard";
 import { Button } from "@/components/ui/button";
@@ -99,10 +100,10 @@ function Home() {
             </div>
             <div className="min-h-[280px] bg-secondary lg:min-h-[520px]">
               <img
-                src={yardImages.wideYard}
-                alt="Tables of second-hand furniture and household items on a suburban driveway"
-                width={1200}
-                height={900}
+                src={banner.url}
+                alt="YARD SALE banner — Your Junk Deserves To Be On-Chain"
+                width={1920}
+                height={815}
                 className="h-full w-full object-cover"
               />
             </div>
