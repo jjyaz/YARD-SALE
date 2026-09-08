@@ -74,6 +74,7 @@ export type Database = {
       companion_tokens: {
         Row: {
           block_number: number | null
+          bytecode_hash: string | null
           chain_id: number
           confirmed_at: string | null
           created_at: string
@@ -82,10 +83,13 @@ export type Database = {
           factory_address: string
           failure_reason: string | null
           id: string
+          implementation_address: string | null
+          last_reconciled_at: string | null
           listing_id: string
           name: string
           passport_id: string
           status: string
+          submitted_at: string | null
           symbol: string
           token_address: string | null
           total_supply: number
@@ -96,6 +100,7 @@ export type Database = {
         }
         Insert: {
           block_number?: number | null
+          bytecode_hash?: string | null
           chain_id: number
           confirmed_at?: string | null
           created_at?: string
@@ -104,10 +109,13 @@ export type Database = {
           factory_address: string
           failure_reason?: string | null
           id?: string
+          implementation_address?: string | null
+          last_reconciled_at?: string | null
           listing_id: string
           name: string
           passport_id: string
           status?: string
+          submitted_at?: string | null
           symbol: string
           token_address?: string | null
           total_supply: number
@@ -118,6 +126,7 @@ export type Database = {
         }
         Update: {
           block_number?: number | null
+          bytecode_hash?: string | null
           chain_id?: number
           confirmed_at?: string | null
           created_at?: string
@@ -126,10 +135,13 @@ export type Database = {
           factory_address?: string
           failure_reason?: string | null
           id?: string
+          implementation_address?: string | null
+          last_reconciled_at?: string | null
           listing_id?: string
           name?: string
           passport_id?: string
           status?: string
+          submitted_at?: string | null
           symbol?: string
           token_address?: string | null
           total_supply?: number
@@ -186,6 +198,7 @@ export type Database = {
       }
       item_passports: {
         Row: {
+          attestation: Json | null
           block_number: number | null
           chain_id: number
           confirmed_at: string | null
@@ -194,12 +207,17 @@ export type Database = {
           failure_reason: string | null
           id: string
           image_hashes: Json
+          ipfs_cid: string | null
+          ipfs_pinned_at: string | null
+          last_reconciled_at: string | null
           listing_id: string
           listing_key: string
           metadata_hash: string
           metadata_snapshot: Json
           metadata_uri: string
           status: string
+          storage_url: string | null
+          submitted_at: string | null
           terms_hash: string
           token_id: number | null
           tx_hash: string | null
@@ -208,6 +226,7 @@ export type Database = {
           wallet_address: string
         }
         Insert: {
+          attestation?: Json | null
           block_number?: number | null
           chain_id: number
           confirmed_at?: string | null
@@ -216,12 +235,17 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           image_hashes?: Json
+          ipfs_cid?: string | null
+          ipfs_pinned_at?: string | null
+          last_reconciled_at?: string | null
           listing_id: string
           listing_key: string
           metadata_hash: string
           metadata_snapshot?: Json
           metadata_uri: string
           status?: string
+          storage_url?: string | null
+          submitted_at?: string | null
           terms_hash: string
           token_id?: number | null
           tx_hash?: string | null
@@ -230,6 +254,7 @@ export type Database = {
           wallet_address: string
         }
         Update: {
+          attestation?: Json | null
           block_number?: number | null
           chain_id?: number
           confirmed_at?: string | null
@@ -238,12 +263,17 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           image_hashes?: Json
+          ipfs_cid?: string | null
+          ipfs_pinned_at?: string | null
+          last_reconciled_at?: string | null
           listing_id?: string
           listing_key?: string
           metadata_hash?: string
           metadata_snapshot?: Json
           metadata_uri?: string
           status?: string
+          storage_url?: string | null
+          submitted_at?: string | null
           terms_hash?: string
           token_id?: number | null
           tx_hash?: string | null
@@ -257,6 +287,141 @@ export type Database = {
             columns: ["listing_id"]
             isOneToOne: true
             referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      liquidity_positions: {
+        Row: {
+          amount0_min: string
+          amount1_min: string
+          chain_id: number
+          confirmed_at: string | null
+          created_at: string
+          deadline_seconds: number
+          eth_amount: string
+          factory_address: string
+          failure_reason: string | null
+          fee_tier: number
+          id: string
+          liquidity: string | null
+          listing_id: string
+          mint_tx_hash: string | null
+          pool_address: string | null
+          pool_tx_hash: string | null
+          position_manager: string
+          position_token_id: string | null
+          risk_accepted_at: string
+          slippage_bps: number
+          sqrt_price_x96: string
+          status: string
+          step: string
+          tick_lower: number
+          tick_upper: number
+          token_address: string
+          token_amount: string
+          token_approve_tx_hash: string | null
+          token_id: string
+          token0: string
+          token1: string
+          updated_at: string
+          user_id: string
+          wallet_address: string
+          weth_address: string
+          weth_approve_tx_hash: string | null
+          wrap_tx_hash: string | null
+        }
+        Insert: {
+          amount0_min: string
+          amount1_min: string
+          chain_id: number
+          confirmed_at?: string | null
+          created_at?: string
+          deadline_seconds?: number
+          eth_amount: string
+          factory_address: string
+          failure_reason?: string | null
+          fee_tier?: number
+          id?: string
+          liquidity?: string | null
+          listing_id: string
+          mint_tx_hash?: string | null
+          pool_address?: string | null
+          pool_tx_hash?: string | null
+          position_manager: string
+          position_token_id?: string | null
+          risk_accepted_at: string
+          slippage_bps?: number
+          sqrt_price_x96: string
+          status?: string
+          step?: string
+          tick_lower: number
+          tick_upper: number
+          token_address: string
+          token_amount: string
+          token_approve_tx_hash?: string | null
+          token_id: string
+          token0: string
+          token1: string
+          updated_at?: string
+          user_id: string
+          wallet_address: string
+          weth_address: string
+          weth_approve_tx_hash?: string | null
+          wrap_tx_hash?: string | null
+        }
+        Update: {
+          amount0_min?: string
+          amount1_min?: string
+          chain_id?: number
+          confirmed_at?: string | null
+          created_at?: string
+          deadline_seconds?: number
+          eth_amount?: string
+          factory_address?: string
+          failure_reason?: string | null
+          fee_tier?: number
+          id?: string
+          liquidity?: string | null
+          listing_id?: string
+          mint_tx_hash?: string | null
+          pool_address?: string | null
+          pool_tx_hash?: string | null
+          position_manager?: string
+          position_token_id?: string | null
+          risk_accepted_at?: string
+          slippage_bps?: number
+          sqrt_price_x96?: string
+          status?: string
+          step?: string
+          tick_lower?: number
+          tick_upper?: number
+          token_address?: string
+          token_amount?: string
+          token_approve_tx_hash?: string | null
+          token_id?: string
+          token0?: string
+          token1?: string
+          updated_at?: string
+          user_id?: string
+          wallet_address?: string
+          weth_address?: string
+          weth_approve_tx_hash?: string | null
+          wrap_tx_hash?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "liquidity_positions_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "liquidity_positions_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: true
+            referencedRelation: "companion_tokens"
             referencedColumns: ["id"]
           },
         ]
