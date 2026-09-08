@@ -10,7 +10,7 @@ const rotation = [wideYard, photographing, porchPickup];
 export function demoCover(slug: string): string {
   let sum = 0;
   for (const char of slug) sum += char.charCodeAt(0);
-  return rotation[sum % rotation.length];
+  return rotation[sum % rotation.length] ?? wideYard;
 }
 
 export function coverFor(listing: {

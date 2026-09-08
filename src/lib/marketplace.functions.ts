@@ -115,8 +115,8 @@ export const browseListings = createServerFn({ method: "GET" })
       .in("status", PUBLIC_STATUSES);
 
     if (data.q) query = query.ilike("title", `%${data.q}%`);
-    if (data.category) query = query.eq("category", data.category);
-    if (data.condition) query = query.eq("condition", data.condition);
+    if (data.category) query = query.eq("category", data.category as never);
+    if (data.condition) query = query.eq("condition", data.condition as never);
     if (data.city) query = query.ilike("city", `%${data.city}%`);
     if (data.passport === "minted") query = query.eq("passport_minted", true);
     if (data.passport === "token") query = query.eq("companion_token", true);
@@ -164,7 +164,7 @@ export const getListingBySlug = createServerFn({ method: "GET" })
       .from("listings")
       .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover), profiles(handle)`)
       .in("status", PUBLIC_STATUSES)
-      .eq("category", listing.category ?? "other")
+      .eq("category", (listing.category ?? "other") as never)
       .neq("slug", listing.slug)
       .limit(3);
 
