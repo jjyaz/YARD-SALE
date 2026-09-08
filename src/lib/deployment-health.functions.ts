@@ -5,6 +5,9 @@ export const getDeploymentHealth = createServerFn({ method: "GET" })
   .inputValidator((input?: { force?: boolean }) => input ?? {})
   .handler(async ({ data }) => {
     const { verifyDeployment, verifyLiquidityInfra, ipfsPinningStatus } = await import("@/lib/launchpad.server");
-    const [deployment, liquidity] = await Promise.all([verifyDeployment({ force: data.force }), verifyLiquidityInfra()]);
+    const [deployment, liquidity] = await Promise.all([
+      verifyDeployment(data.force ? { force: true } : {}),
+      verifyLiquidityInfra(),
+    ]);
     return { deployment, liquidity, ipfs: ipfsPinningStatus() };
   });
