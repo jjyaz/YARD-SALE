@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title YardSaleAssetRegistry
@@ -12,12 +13,13 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
  *  - Exactly one passport may ever be minted for a given off-chain listing id.
  *  - Metadata URI, metadata hash and terms hash are immutable after mint.
  *  - Each passport carries a lifecycle status.
- *  - Each passport may be permanently paired with at most one companion token.
+ *  - Each passport may be permanently paired with at most one companion token,
+ *    and only by an address holding PAIRING_ROLE (the YardTokenFactory).
  *
  * A passport is a record of a listing. It is not a claim on the physical item,
  * and it carries no financial rights of any kind.
  */
-contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable {
+contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable, ReentrancyGuard {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant STATUS_ROLE = keccak256("STATUS_ROLE");
@@ -52,6 +54,7 @@ contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable {
     error EmptyMetadataURI();
     error EmptyHash();
     error ZeroAddress();
+    error NotAContract(address account);
     error CompanionTokenAlreadySet(uint256 tokenId, address existing);
     error StatusUnchanged(uint256 tokenId);
 
@@ -75,13 +78,15 @@ contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable {
     }
 
     /// @notice Mints the single Item Passport allowed for `listingId`.
+    /// @dev Sellers mint to themselves; MINTER_ROLE may mint on behalf of others.
+    ///      nonReentrant closes the ERC721 receiver callback re-entry path.
     function mintPassport(
         address to,
         bytes32 listingId,
         string calldata metadataURI,
         bytes32 metadataHash,
         bytes32 termsHash
-    ) external whenNotPaused returns (uint256 tokenId) {
+    ) external whenNotPaused nonReentrant returns (uint256 tokenId) {
         if (to == address(0)) revert ZeroAddress();
         if (listingId == bytes32(0)) revert EmptyListingId();
         if (bytes(metadataURI).length == 0) revert EmptyMetadataURI();
@@ -116,13 +121,23 @@ contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable {
     }
 
     /// @notice Permanently pairs one companion token with one passport. Callable once, by the factory.
-    function setCompanionToken(uint256 tokenId, address companionToken) external onlyRole(PAIRING_ROLE) {
+    function setCompanionToken(uint256 tokenId, address companionToken)
+        external
+        onlyRole(PAIRING_ROLE)
+        whenNotPaused
+    {
         _requireMinted(tokenId);
         if (companionToken == address(0)) revert ZeroAddress();
+        if (companionToken.code.length == 0) revert NotAContract(companionToken);
         address existing = _passports[tokenId].companionToken;
         if (existing != address(0)) revert CompanionTokenAlreadySet(tokenId, existing);
         _passports[tokenId].companionToken = companionToken;
         emit CompanionTokenPaired(tokenId, companionToken);
+    }
+
+    /// @notice Returns the passport token id for a listing, or 0 when none has been minted.
+    function passportOfListing(bytes32 listingId) external view returns (uint256) {
+        return tokenIdForListing[listingId];
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {
