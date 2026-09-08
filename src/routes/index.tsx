@@ -23,12 +23,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Sell the couch, keep the story. A neighbourhood marketplace for real second-hand things, with optional Item Passports on Robinhood Chain.",
+          "Sell the couch, keep the story. A neighbourhood marketplace for real second-hand things — turn any listing into a real-world asset (RWA) on-chain with an Item Passport, then pair and launch a companion token via the Launchpad on Robinhood Chain.",
       },
       { property: "og:title", content: "YARD SALE — Your Junk Deserves To Be On-Chain" },
       {
         property: "og:description",
-        content: "A neighbourhood marketplace for real second-hand things, with optional on-chain Item Passports.",
+        content:
+          "A neighbourhood marketplace for real second-hand things. Turn any listing into an on-chain RWA with an Item Passport, then pair and launch a companion token via the Launchpad on Robinhood Chain.",
       },
     ],
   }),
@@ -76,8 +77,9 @@ function Home() {
               />
               <p className="prose-measure text-lg text-muted-foreground">
                 A neighbourhood marketplace for real second-hand things. List the lamp, meet the
-                buyer on the driveway, and — if you want it — keep a permanent record of where the
-                thing has been.
+                buyer on the driveway — and when you're ready, turn the listing into a real-world
+                asset on-chain. Mint an Item Passport to prove what the thing is and where it's been,
+                then pair it with a companion token and launch it through the Launchpad.
               </p>
               <div className="flex flex-wrap gap-3">
                 <Button asChild size="lg" className="rounded-xl">
