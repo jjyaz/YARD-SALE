@@ -1,4 +1,4 @@
-/* Verifies the deployed contracts on the Robinhood testnet explorer. */
+/* Verifies the TESTNET deployment on the Robinhood testnet explorer. */
 const fs = require("fs");
 const path = require("path");
 const hre = require("hardhat");
@@ -8,12 +8,12 @@ async function main() {
   if (!fs.existsSync(file)) throw new Error(`No deployment record at ${file}. Run the deploy script first.`);
   const d = JSON.parse(fs.readFileSync(file, "utf8"));
 
-  await hre.run("verify:verify", { address: d.registry, constructorArguments: [d.admin] });
+  await hre.run("verify:verify", { address: d.implementation, constructorArguments: [] });
+  await hre.run("verify:verify", { address: d.registry, constructorArguments: [d.deployer] });
   await hre.run("verify:verify", {
     address: d.factory,
-    constructorArguments: [d.admin, d.registry, d.treasury],
+    constructorArguments: [d.deployer, d.registry, d.treasury, d.implementation],
   });
-  await hre.run("verify:verify", { address: d.implementation, constructorArguments: [] });
 }
 
 main().catch((error) => {
