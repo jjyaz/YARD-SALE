@@ -78,6 +78,8 @@ function SellWizard() {
   const [pickup, setPickup] = useState({ exact_address: "", instructions: "", contact_note: "" });
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load or create the draft row.
@@ -175,42 +177,62 @@ function SellWizard() {
   }
 
   async function uploadPhotos(files: FileList | null) {
-    if (!files || !draft || !user) return;
-    for (const file of Array.from(files).slice(0, 8)) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error(`${file.name} is larger than 10MB.`);
-        continue;
+    if (!files || files.length === 0 || !draft || !user) return;
+    setUploading(true);
+    try {
+      const room = Math.max(0, 8 - media.length);
+      if (room === 0) {
+        toast.error("You already have 8 photos. Remove one first.");
+        return;
       }
-      const path = `${user.id}/${draft.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
-      const { error } = await supabase.storage.from("listing-public").upload(path, file, {
-        contentType: file.type,
-        upsert: false,
-      });
-      if (error) {
-        toast.error(error.message);
-        continue;
+      const chosen = Array.from(files).slice(0, room);
+      let added = 0;
+      for (const file of chosen) {
+        if (!file.type.startsWith("image/")) {
+          toast.error(`${file.name} is not an image.`);
+          continue;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          toast.error(`${file.name} is larger than 10MB.`);
+          continue;
+        }
+        const path = `${user.id}/${draft.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+        const { error } = await supabase.storage.from("listing-public").upload(path, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+        if (error) {
+          toast.error(error.message);
+          continue;
+        }
+        const { data: signed } = await supabase.storage
+          .from("listing-public")
+          .createSignedUrl(path, SIGNED_URL_TTL);
+        const ordinal = media.length + added;
+        const { data: row, error: mediaError } = await supabase
+          .from("listing_media")
+          .insert({
+            listing_id: draft.id,
+            storage_path: path,
+            public_url: signed?.signedUrl ?? null,
+            ordinal,
+            is_cover: ordinal === 0,
+          })
+          .select("id, storage_path, public_url")
+          .single();
+        if (mediaError) {
+          toast.error(mediaError.message);
+          continue;
+        }
+        added += 1;
+        setMedia((prev) => [...prev, row]);
       }
-      const { data: signed } = await supabase.storage
-        .from("listing-public")
-        .createSignedUrl(path, SIGNED_URL_TTL);
-      const { data: row, error: mediaError } = await supabase
-        .from("listing_media")
-        .insert({
-          listing_id: draft.id,
-          storage_path: path,
-          public_url: signed?.signedUrl ?? null,
-          ordinal: media.length,
-          is_cover: media.length === 0,
-        })
-        .select("id, storage_path, public_url")
-        .single();
-      if (mediaError) {
-        toast.error(mediaError.message);
-        continue;
-      }
-      setMedia((prev) => [...prev, row]);
+      if (added > 0) toast.success(added === 1 ? "Photo uploaded." : `${added} photos uploaded.`);
+    } finally {
+      setUploading(false);
     }
   }
+
 
   async function removePhoto(row: MediaRow) {
     await supabase.from("listing_media").delete().eq("id", row.id);
@@ -331,17 +353,44 @@ function SellWizard() {
               <p className="mt-1 text-xs text-muted-foreground">
                 At least one photo of the actual item. Up to 8, 10MB each.
               </p>
-              <div className="mt-3 flex items-center gap-3">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  void uploadPhotos(e.dataTransfer.files);
+                }}
+                className={`mt-3 rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+                  dragging ? "border-primary bg-secondary" : "border-border"
+                }`}
+              >
+                <Upload className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                <p className="mt-2 text-sm font-medium">Drag and drop photos here</p>
+                <p className="text-xs text-muted-foreground">or choose files from your device</p>
                 <Input
                   id="photos"
                   type="file"
                   accept="image/*"
                   multiple
-                  onChange={(e) => void uploadPhotos(e.target.files)}
+                  className="mx-auto mt-3 max-w-xs"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    void uploadPhotos(e.target.files);
+                    e.target.value = "";
+                  }}
                 />
-                <Upload className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                {uploading ? (
+                  <p className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Uploading photos…
+                  </p>
+                ) : null}
               </div>
             </div>
+
             {media.length > 0 ? (
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {media.map((row) => (
