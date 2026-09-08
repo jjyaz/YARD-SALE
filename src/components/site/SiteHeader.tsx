@@ -102,6 +102,9 @@ export function SiteHeader() {
                   <Link to="/dashboard">My Yard</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to="/launchpad">Launchpad</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/settings">Settings</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
