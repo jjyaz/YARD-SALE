@@ -41,7 +41,7 @@ function StatusPage() {
             <ul className="mt-4 divide-y divide-border">
               {checks.map((check) => (
                 <li key={check.key} className="flex items-start gap-3 py-3">
-                  {check.ok ? (
+                  {check.ready ? (
                     <CheckCircle2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-grass-deep" />
                   ) : (
                     <MinusCircle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
@@ -49,8 +49,8 @@ function StatusPage() {
                   <div>
                     <p className="text-sm font-semibold">
                       {check.label}{" "}
-                      <span className={check.ok ? "text-grass-deep" : "text-muted-foreground"}>
-                        — {check.ok ? "configured" : "not configured"}
+                      <span className={check.ready ? "text-grass-deep" : "text-muted-foreground"}>
+                        — {check.ready ? "configured" : "not configured"}
                       </span>
                     </p>
                     <p className="text-sm text-muted-foreground">{check.detail}</p>
