@@ -180,7 +180,7 @@ export function validateTokenParams(input: {
   if (!input.name.trim()) return "Token name is required.";
   if (input.name.trim().length > 64) return "Token name must be 64 characters or fewer.";
   if (!input.symbol.trim()) return "Token symbol is required.";
-  if (input.symbol.trim().length > 11) return "Token symbol must be 11 characters or fewer.";
+  if (input.symbol.trim().length > 16) return "Token symbol must be 16 characters or fewer.";
   if (input.totalSupply <= 0n) return "Total supply must be greater than zero.";
   if (input.totalSupply > COMPANION_MAX_SUPPLY) return "Total supply exceeds the contract maximum of 1,000,000,000,000 tokens.";
   if (input.creatorAllocation <= 0n) return "Your allocation must be greater than zero.";
