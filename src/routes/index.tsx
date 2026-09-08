@@ -15,7 +15,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import logo from "@/assets/yard-sale-official-lockup.png.asset.json";
+
 import banner from "@/assets/yard-sale-banner.png.asset.json";
 import { yardImages } from "@/lib/demo-images";
 import { ListingCard } from "@/components/site/ListingCard";
@@ -82,11 +82,11 @@ function Home() {
           <div className="grid items-stretch lg:grid-cols-[1.05fr_1fr]">
             <div className="flex flex-col justify-center gap-7 p-7 sm:p-12">
               <img
-                src={logo.url}
+                src={banner.url}
                 alt="YARD SALE — Your Junk Deserves To Be On-Chain"
-                width={520}
-                height={280}
-                className="w-full max-w-[420px]"
+                width={1920}
+                height={815}
+                className="w-full max-w-[460px]"
               />
               <p className="prose-measure text-lg text-muted-foreground">
                 A neighbourhood marketplace for real second-hand things. List the lamp, meet the
