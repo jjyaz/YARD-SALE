@@ -22,6 +22,7 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TrustSafetyRouteImport } from './routes/trust-safety'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedLaunchpadRouteImport } from './routes/_authenticated/launchpad'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ItemSlugRouteImport } from './routes/item.$slug'
 import { Route as ProfileHandleRouteImport } from './routes/profile.$handle'
@@ -91,6 +92,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedLaunchpadRoute = AuthenticatedLaunchpadRouteImport.update({
+  id: '/launchpad',
+  path: '/launchpad',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/trust-safety': typeof TrustSafetyRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/launchpad': typeof AuthenticatedLaunchpadRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
@@ -143,6 +150,7 @@ export interface FileRoutesByTo {
   '/trust-safety': typeof TrustSafetyRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/launchpad': typeof AuthenticatedLaunchpadRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   '/trust-safety': typeof TrustSafetyRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/launchpad': typeof AuthenticatedLaunchpadRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
@@ -183,6 +192,7 @@ export interface FileRouteTypes {
     | '/trust-safety'
     | '/admin'
     | '/dashboard'
+    | '/launchpad'
     | '/settings'
     | '/item/$slug'
     | '/profile/$handle'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/trust-safety'
     | '/admin'
     | '/dashboard'
+    | '/launchpad'
     | '/settings'
     | '/item/$slug'
     | '/profile/$handle'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '/trust-safety'
     | '/_authenticated/admin'
     | '/_authenticated/dashboard'
+    | '/_authenticated/launchpad'
     | '/_authenticated/settings'
     | '/item/$slug'
     | '/profile/$handle'
@@ -335,6 +347,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/launchpad': {
+      id: '/_authenticated/launchpad'
+      path: '/launchpad'
+      fullPath: '/launchpad'
+      preLoaderRoute: typeof AuthenticatedLaunchpadRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -369,6 +388,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedLaunchpadRoute: typeof AuthenticatedLaunchpadRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSellNewRoute: typeof AuthenticatedSellNewRoute
 }
@@ -376,6 +396,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedLaunchpadRoute: AuthenticatedLaunchpadRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSellNewRoute: AuthenticatedSellNewRoute,
 }
