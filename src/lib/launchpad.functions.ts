@@ -357,7 +357,7 @@ export const reconcilePassport = createServerFn({ method: "POST" })
       .from("item_passports")
       .update({
         status: "confirmed",
-        token_id: minted.tokenId.toString(),
+        token_id: minted.tokenId.toString() as unknown as number,
         wallet_address: minted.owner.toLowerCase(),
         block_number: Number(receipt.blockNumber),
         confirmed_at: new Date().toISOString(),
@@ -437,8 +437,8 @@ export const recordTokenSubmission = createServerFn({ method: "POST" })
       wallet_address: data.wallet.toLowerCase(),
       name: data.name.trim(),
       symbol: data.symbol.trim().toUpperCase(),
-      total_supply: data.totalSupply,
-      creator_allocation: data.creatorAllocation,
+      total_supply: data.totalSupply as unknown as number,
+      creator_allocation: data.creatorAllocation as unknown as number,
       tx_hash: data.txHash,
       status: "submitted" as const,
       failure_reason: null,
@@ -486,19 +486,20 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
     }
 
     const factory = getAddress(config.factory);
-    let created: {
+    type CreatedEvent = {
       passportTokenId: bigint;
       token: string;
       creator: string;
       totalSupply: bigint;
       creatorAllocation: bigint;
-    } | null = null;
+    };
+    let created: CreatedEvent | null = null;
     for (const log of receipt.logs) {
       if (getAddress(log.address) !== factory) continue;
       try {
         const decoded = decodeEventLog({ abi: tokenFactoryAbi, data: log.data, topics: log.topics });
         if (decoded.eventName !== "CompanionTokenCreated") continue;
-        created = decoded.args as unknown as typeof created;
+        created = decoded.args as unknown as CreatedEvent;
         break;
       } catch {
         continue;
