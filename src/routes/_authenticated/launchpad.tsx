@@ -395,7 +395,17 @@ function Launchpad() {
                     >
                       View token on the explorer <ExternalLink className="h-3.5 w-3.5" />
                     </a>
+                    <div>
+                      <Link
+                        className="font-semibold underline underline-offset-4"
+                        to="/token/$address"
+                        params={{ address: companion.token_address ?? "" }}
+                      >
+                        Open the token page to sell your tokens
+                      </Link>
+                    </div>
                     <p className="text-muted-foreground">One companion token per passport. This pairing is permanent.</p>
+
                   </div>
                 ) : !factoryReady ? (
                   <ConfigRequired
