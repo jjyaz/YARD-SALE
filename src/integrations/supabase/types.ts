@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      companion_token_offers: {
+        Row: {
+          amount_base_units: string
+          created_at: string
+          id: string
+          listing_id: string
+          note: string | null
+          price_wei_per_token: string
+          seller_wallet: string
+          status: string
+          token_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_base_units: string
+          created_at?: string
+          id?: string
+          listing_id: string
+          note?: string | null
+          price_wei_per_token: string
+          seller_wallet: string
+          status?: string
+          token_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_base_units?: string
+          created_at?: string
+          id?: string
+          listing_id?: string
+          note?: string | null
+          price_wei_per_token?: string
+          seller_wallet?: string
+          status?: string
+          token_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "companion_token_offers_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "companion_token_offers_token_id_fkey"
+            columns: ["token_id"]
+            isOneToOne: false
+            referencedRelation: "companion_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companion_tokens: {
         Row: {
           block_number: number | null
