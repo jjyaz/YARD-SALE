@@ -67,7 +67,7 @@ function toListing(row: Row): PublicListing {
     ordinal: Number(m["ordinal"] ?? 0),
     is_cover: Boolean(m["is_cover"]),
   }));
-  const profile = row["profiles"] as Row | null;
+  const profile = null as Row | null;
   return {
     ...(row as unknown as PublicListing),
     price_eth: Number(row["price_eth"] ?? 0),
@@ -79,15 +79,31 @@ function toListing(row: Row): PublicListing {
   };
 }
 
+
+/** listings.seller_id references auth.users, so seller handles are fetched separately. */
+async function withSellerHandles(
+  client: ReturnType<typeof publicClient>,
+  listings: PublicListing[],
+): Promise<PublicListing[]> {
+  const ids = [...new Set(listings.map((l) => l.seller_id).filter((id): id is string => Boolean(id)))];
+  if (ids.length === 0) return listings;
+  const { data } = await client.from("profiles").select("id, handle").in("id", ids);
+  const map = new Map((data ?? []).map((p) => [p.id, p.handle]));
+  return listings.map((l) => ({
+    ...l,
+    seller_handle: (l.seller_id ? map.get(l.seller_id) : null) ?? l.demo_seller_handle ?? null,
+  }));
+}
+
 export const getFeaturedListings = createServerFn({ method: "GET" }).handler(async () => {
   const { data, error } = await publicClient()
     .from("listings")
-    .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover), profiles(handle)`)
+    .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover)`)
     .in("status", PUBLIC_STATUSES)
     .order("published_at", { ascending: false, nullsFirst: false })
     .limit(8);
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => toListing(row as Row));
+  return withSellerHandles(publicClient(), (data ?? []).map((row) => toListing(row as Row)));
 });
 
 export type BrowseInput = {
@@ -109,7 +125,7 @@ export const browseListings = createServerFn({ method: "GET" })
     let query = publicClient()
       .from("listings")
       .select(
-        `${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover), profiles(handle)`,
+        `${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover)`,
         { count: "exact" },
       )
       .in("status", PUBLIC_STATUSES);
@@ -139,7 +155,7 @@ export const browseListings = createServerFn({ method: "GET" })
     const { data: rows, count, error } = await query.range(from, from + pageSize - 1);
     if (error) throw new Error(error.message);
     return {
-      items: (rows ?? []).map((row) => toListing(row as Row)),
+      items: await withSellerHandles(publicClient(), (rows ?? []).map((row) => toListing(row as Row))),
       total: count ?? 0,
       page,
       pageSize,
@@ -152,23 +168,27 @@ export const getListingBySlug = createServerFn({ method: "GET" })
     const client = publicClient();
     const { data: row, error } = await client
       .from("listings")
-      .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover), profiles(handle)`)
+      .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover)`)
       .eq("slug", data.slug)
       .in("status", PUBLIC_STATUSES)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!row) return null;
-    const listing = toListing(row as Row);
+    const [listing] = await withSellerHandles(client, [toListing(row as Row)]);
+    if (!listing) return null;
 
     const { data: related } = await client
       .from("listings")
-      .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover), profiles(handle)`)
+      .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover)`)
       .in("status", PUBLIC_STATUSES)
       .eq("category", (listing.category ?? "other") as never)
       .neq("slug", listing.slug)
       .limit(3);
 
-    return { listing, related: (related ?? []).map((r) => toListing(r as Row)) };
+    return {
+      listing,
+      related: await withSellerHandles(client, (related ?? []).map((r) => toListing(r as Row))),
+    };
   });
 
 export const getPublicProfile = createServerFn({ method: "GET" })
@@ -185,11 +205,11 @@ export const getPublicProfile = createServerFn({ method: "GET" })
       // Demo sellers exist only as a handle on their listings.
       const { data: demoRows } = await client
         .from("listings")
-        .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover), profiles(handle)`)
+        .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover)`)
         .eq("demo_seller_handle", data.handle)
         .in("status", PUBLIC_STATUSES);
       if (!demoRows || demoRows.length === 0) return null;
-      const items = demoRows.map((r) => toListing(r as Row));
+      const items = await withSellerHandles(client, demoRows.map((r) => toListing(r as Row)));
       return {
         profile: {
           id: null,
@@ -209,13 +229,13 @@ export const getPublicProfile = createServerFn({ method: "GET" })
 
     const { data: rows } = await client
       .from("listings")
-      .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover), profiles(handle)`)
+      .select(`${LISTING_COLUMNS}, listing_media(public_url, ordinal, is_cover)`)
       .eq("seller_id", profile.id)
       .in("status", PUBLIC_STATUSES)
       .order("published_at", { ascending: false, nullsFirst: false });
 
     return {
       profile: { ...profile, is_demo: false },
-      listings: (rows ?? []).map((r) => toListing(r as Row)),
+      listings: await withSellerHandles(client, (rows ?? []).map((r) => toListing(r as Row))),
     };
   });
