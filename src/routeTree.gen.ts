@@ -26,6 +26,7 @@ import { Route as AuthenticatedLaunchpadRouteImport } from './routes/_authentica
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ItemSlugRouteImport } from './routes/item.$slug'
 import { Route as ProfileHandleRouteImport } from './routes/profile.$handle'
+import { Route as TokenAddressRouteImport } from './routes/token.$address'
 import { Route as AuthenticatedSellNewRouteImport } from './routes/_authenticated/sell.new'
 
 const IndexRoute = IndexRouteImport.update({
@@ -112,6 +113,11 @@ const ProfileHandleRoute = ProfileHandleRouteImport.update({
   path: '/profile/$handle',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TokenAddressRoute = TokenAddressRouteImport.update({
+  id: '/token/$address',
+  path: '/token/$address',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSellNewRoute = AuthenticatedSellNewRouteImport.update({
   id: '/sell/new',
   path: '/sell/new',
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
+  '/token/$address': typeof TokenAddressRoute
   '/sell/new': typeof AuthenticatedSellNewRoute
 }
 export interface FileRoutesByTo {
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
+  '/token/$address': typeof TokenAddressRoute
   '/sell/new': typeof AuthenticatedSellNewRoute
 }
 export interface FileRoutesById {
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
+  '/token/$address': typeof TokenAddressRoute
   '/_authenticated/sell/new': typeof AuthenticatedSellNewRoute
 }
 export interface FileRouteTypes {
@@ -196,6 +205,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/item/$slug'
     | '/profile/$handle'
+    | '/token/$address'
     | '/sell/new'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -215,6 +225,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/item/$slug'
     | '/profile/$handle'
+    | '/token/$address'
     | '/sell/new'
   id:
     | '__root__'
@@ -235,6 +246,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/item/$slug'
     | '/profile/$handle'
+    | '/token/$address'
     | '/_authenticated/sell/new'
   fileRoutesById: FileRoutesById
 }
@@ -252,6 +264,7 @@ export interface RootRouteChildren {
   TrustSafetyRoute: typeof TrustSafetyRoute
   ItemSlugRoute: typeof ItemSlugRoute
   ProfileHandleRoute: typeof ProfileHandleRoute
+  TokenAddressRoute: typeof TokenAddressRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -375,6 +388,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileHandleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/token/$address': {
+      id: '/token/$address'
+      path: '/token/$address'
+      fullPath: '/token/$address'
+      preLoaderRoute: typeof TokenAddressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/sell/new': {
       id: '/_authenticated/sell/new'
       path: '/sell/new'
@@ -418,6 +438,7 @@ const rootRouteChildren: RootRouteChildren = {
   TrustSafetyRoute: TrustSafetyRoute,
   ItemSlugRoute: ItemSlugRoute,
   ProfileHandleRoute: ProfileHandleRoute,
+  TokenAddressRoute: TokenAddressRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
