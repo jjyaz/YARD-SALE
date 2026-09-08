@@ -34,7 +34,9 @@ export function cidV1RawFromDigest(digest: Uint8Array): string {
 }
 
 export async function cidV1Raw(bytes: Uint8Array): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", copy.buffer as ArrayBuffer));
   return cidV1RawFromDigest(digest);
 }
 
