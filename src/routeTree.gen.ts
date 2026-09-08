@@ -20,10 +20,12 @@ import { Route as RiskDisclosureRouteImport } from './routes/risk-disclosure'
 import { Route as StatusRouteImport } from './routes/status'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TrustSafetyRouteImport } from './routes/trust-safety'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ItemSlugRouteImport } from './routes/item.$slug'
 import { Route as ProfileHandleRouteImport } from './routes/profile.$handle'
+import { Route as AuthenticatedSellNewRouteImport } from './routes/_authenticated/sell.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -79,6 +81,11 @@ const TrustSafetyRoute = TrustSafetyRouteImport.update({
   path: '/trust-safety',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -99,6 +106,11 @@ const ProfileHandleRoute = ProfileHandleRouteImport.update({
   path: '/profile/$handle',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedSellNewRoute = AuthenticatedSellNewRouteImport.update({
+  id: '/sell/new',
+  path: '/sell/new',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -111,10 +123,12 @@ export interface FileRoutesByFullPath {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
+  '/sell/new': typeof AuthenticatedSellNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -127,10 +141,12 @@ export interface FileRoutesByTo {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
+  '/sell/new': typeof AuthenticatedSellNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -145,10 +161,12 @@ export interface FileRoutesById {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
   '/profile/$handle': typeof ProfileHandleRoute
+  '/_authenticated/sell/new': typeof AuthenticatedSellNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -163,10 +181,12 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/admin'
     | '/dashboard'
     | '/settings'
     | '/item/$slug'
     | '/profile/$handle'
+    | '/sell/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -179,10 +199,12 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/admin'
     | '/dashboard'
     | '/settings'
     | '/item/$slug'
     | '/profile/$handle'
+    | '/sell/new'
   id:
     | '__root__'
     | '/'
@@ -196,10 +218,12 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/_authenticated/admin'
     | '/_authenticated/dashboard'
     | '/_authenticated/settings'
     | '/item/$slug'
     | '/profile/$handle'
+    | '/_authenticated/sell/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -297,6 +321,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrustSafetyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -325,17 +356,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileHandleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/sell/new': {
+      id: '/_authenticated/sell/new'
+      path: '/sell/new'
+      fullPath: '/sell/new'
+      preLoaderRoute: typeof AuthenticatedSellNewRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedSellNewRoute: typeof AuthenticatedSellNewRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedSellNewRoute: AuthenticatedSellNewRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
