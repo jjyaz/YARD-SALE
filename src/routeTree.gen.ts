@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as BrowseRouteImport } from './routes/browse'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
@@ -19,11 +20,18 @@ import { Route as RiskDisclosureRouteImport } from './routes/risk-disclosure'
 import { Route as StatusRouteImport } from './routes/status'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TrustSafetyRouteImport } from './routes/trust-safety'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ItemSlugRouteImport } from './routes/item.$slug'
+import { Route as ProfileHandleRouteImport } from './routes/profile.$handle'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -71,9 +79,24 @@ const TrustSafetyRoute = TrustSafetyRouteImport.update({
   path: '/trust-safety',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const ItemSlugRoute = ItemSlugRouteImport.update({
   id: '/item/$slug',
   path: '/item/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileHandleRoute = ProfileHandleRouteImport.update({
+  id: '/profile/$handle',
+  path: '/profile/$handle',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -88,7 +111,10 @@ export interface FileRoutesByFullPath {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
+  '/profile/$handle': typeof ProfileHandleRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -101,11 +127,15 @@ export interface FileRoutesByTo {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
+  '/profile/$handle': typeof ProfileHandleRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/browse': typeof BrowseRoute
   '/how-it-works': typeof HowItWorksRoute
@@ -115,7 +145,10 @@ export interface FileRoutesById {
   '/status': typeof StatusRoute
   '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/item/$slug': typeof ItemSlugRoute
+  '/profile/$handle': typeof ProfileHandleRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -130,7 +163,10 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/dashboard'
+    | '/settings'
     | '/item/$slug'
+    | '/profile/$handle'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -143,10 +179,14 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/dashboard'
+    | '/settings'
     | '/item/$slug'
+    | '/profile/$handle'
   id:
     | '__root__'
     | '/'
+    | '/_authenticated'
     | '/auth'
     | '/browse'
     | '/how-it-works'
@@ -156,11 +196,15 @@ export interface FileRouteTypes {
     | '/status'
     | '/terms'
     | '/trust-safety'
+    | '/_authenticated/dashboard'
+    | '/_authenticated/settings'
     | '/item/$slug'
+    | '/profile/$handle'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   BrowseRoute: typeof BrowseRoute
   HowItWorksRoute: typeof HowItWorksRoute
@@ -171,6 +215,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   TrustSafetyRoute: typeof TrustSafetyRoute
   ItemSlugRoute: typeof ItemSlugRoute
+  ProfileHandleRoute: typeof ProfileHandleRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -180,6 +225,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -245,6 +297,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrustSafetyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/item/$slug': {
       id: '/item/$slug'
       path: '/item/$slug'
@@ -252,11 +318,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ItemSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile/$handle': {
+      id: '/profile/$handle'
+      path: '/profile/$handle'
+      fullPath: '/profile/$handle'
+      preLoaderRoute: typeof ProfileHandleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   BrowseRoute: BrowseRoute,
   HowItWorksRoute: HowItWorksRoute,
@@ -267,6 +354,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   TrustSafetyRoute: TrustSafetyRoute,
   ItemSlugRoute: ItemSlugRoute,
+  ProfileHandleRoute: ProfileHandleRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
