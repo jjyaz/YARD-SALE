@@ -100,10 +100,10 @@ function Home() {
             </div>
             <div className="min-h-[280px] bg-secondary lg:min-h-[520px]">
               <img
-                src={yardImages.wideYard}
-                alt="Tables of second-hand furniture and household items on a suburban driveway"
-                width={1200}
-                height={900}
+                src={banner.url}
+                alt="YARD SALE banner — Your Junk Deserves To Be On-Chain"
+                width={1920}
+                height={815}
                 className="h-full w-full object-cover"
               />
             </div>
