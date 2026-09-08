@@ -1,6 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, queryOptions } from "@tanstack/react-query";
-import { ArrowRight, Camera, HandCoins, MapPin, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Camera,
+  Coins,
+  Database,
+  FileText,
+  Fingerprint,
+  HandCoins,
+  Hash,
+  Image as ImageIcon,
+  Link2,
+  MapPin,
+  ShieldCheck,
+} from "lucide-react";
 
 import logo from "@/assets/yard-sale-official-lockup.png.asset.json";
 import banner from "@/assets/yard-sale-banner.png.asset.json";
