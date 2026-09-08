@@ -1,22 +1,33 @@
 {
   "name": "yard-sale-contracts",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "commonjs",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "deploy:testnet": "hardhat run scripts/deploy.js --network robinhoodTestnet",
     "verify:testnet": "hardhat run scripts/verify.js --network robinhoodTestnet",
+    "deploy:mainnet:plan": "hardhat run scripts/deploy-mainnet.ts --network robinhoodMainnet",
+    "deploy:mainnet": "CONFIRM_MAINNET_DEPLOY=YES hardhat run scripts/deploy-mainnet.ts --network robinhoodMainnet",
+    "verify:mainnet": "hardhat run scripts/verify-mainnet.ts --network robinhoodMainnet",
+    "check:mainnet": "hardhat run scripts/check-mainnet-deployment.ts --network robinhoodMainnet",
+    "simulate:mainnet": "MAINNET_FORK=true hardhat run scripts/simulate-mainnet-deploy.ts",
     "export-abis": "node scripts/export-abis.js"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/chai": "^4.3.20",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.10.2",
     "dotenv": "^16.4.5",
-    "hardhat": "^2.22.17"
+    "hardhat": "^2.22.17",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.1.0",
-    "@openzeppelin/contracts-upgradeable": "^5.1.0"
+    "@openzeppelin/contracts": "5.1.0",
+    "@openzeppelin/contracts-upgradeable": "5.1.0"
   }
 }
