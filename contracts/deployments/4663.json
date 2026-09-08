@@ -1,0 +1,23 @@
+{
+  "schema": "yardsale-deployment/1",
+  "status": "not_deployed",
+  "network": "robinhoodMainnet",
+  "chainId": 4663,
+  "deployer": null,
+  "admin": null,
+  "treasury": null,
+  "contracts": {},
+  "roleTransactions": [],
+  "deployerRolesRenounced": false,
+  "compiler": {
+    "solidity": "0.8.24",
+    "optimizerRuns": 200,
+    "viaIR": true,
+    "evmVersion": "cancun"
+  },
+  "deployedAt": null,
+  "notes": [
+    "No mainnet deployment has been performed. scripts/deploy-mainnet.ts overwrites this file with real addresses, transaction hashes, block numbers and bytecode hashes after a confirmed broadcast.",
+    "Never hand-edit addresses into this file. The app validates them against live chain state before enabling anything."
+  ]
+}

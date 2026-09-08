@@ -1,4 +1,4 @@
-/* Deploys the registry + factory and wires the pairing role. Never runs automatically. */
+/* Robinhood Chain TESTNET (46630) deployment. Never runs automatically. */
 const fs = require("fs");
 const path = require("path");
 const hre = require("hardhat");
@@ -17,29 +17,38 @@ async function main() {
   console.log(`Treasury  : ${treasury}`);
 
   if (net.chainId !== 46630n && hre.network.name !== "hardhat" && hre.network.name !== "localhost") {
-    throw new Error(`Refusing to deploy to chainId ${net.chainId}. Testnet 46630 only in this phase.`);
+    throw new Error(
+      `Refusing to deploy to chainId ${net.chainId}. This script is testnet-only; use scripts/deploy-mainnet.ts for 4663.`,
+    );
   }
 
+  const Impl = await hre.ethers.getContractFactory("YardCompanionToken");
+  const impl = await Impl.deploy();
+  await impl.waitForDeployment();
+  const implAddress = await impl.getAddress();
+  console.log(`YardCompanionToken (impl): ${implAddress}`);
+
   const Registry = await hre.ethers.getContractFactory("YardSaleAssetRegistry");
-  const registry = await Registry.deploy(admin);
+  const registry = await Registry.deploy(deployer.address);
   await registry.waitForDeployment();
   const registryAddress = await registry.getAddress();
-  console.log(`YardSaleAssetRegistry: ${registryAddress}`);
+  console.log(`YardSaleAssetRegistry    : ${registryAddress}`);
 
   const Factory = await hre.ethers.getContractFactory("YardTokenFactory");
-  const factory = await Factory.deploy(admin, registryAddress, treasury);
+  const factory = await Factory.deploy(deployer.address, registryAddress, treasury, implAddress);
   await factory.waitForDeployment();
   const factoryAddress = await factory.getAddress();
-  console.log(`YardTokenFactory     : ${factoryAddress}`);
-  console.log(`Clone implementation : ${await factory.implementation()}`);
+  console.log(`YardTokenFactory         : ${factoryAddress}`);
 
   const PAIRING_ROLE = await registry.PAIRING_ROLE();
-  if (admin.toLowerCase() === deployer.address.toLowerCase()) {
-    const tx = await registry.grantRole(PAIRING_ROLE, factoryAddress);
-    await tx.wait();
-    console.log("Granted PAIRING_ROLE to the factory.");
-  } else {
-    console.log(`MANUAL STEP: admin ${admin} must call registry.grantRole(${PAIRING_ROLE}, ${factoryAddress})`);
+  await (await registry.grantRole(PAIRING_ROLE, factoryAddress)).wait();
+  console.log("Granted PAIRING_ROLE to the factory.");
+
+  if (admin.toLowerCase() !== deployer.address.toLowerCase()) {
+    const DEFAULT_ADMIN_ROLE = await registry.DEFAULT_ADMIN_ROLE();
+    await (await registry.grantRole(DEFAULT_ADMIN_ROLE, admin)).wait();
+    await (await factory.grantRole(DEFAULT_ADMIN_ROLE, admin)).wait();
+    console.log(`Granted DEFAULT_ADMIN_ROLE on both contracts to ${admin}. Deployer roles kept for testnet convenience.`);
   }
 
   const out = {
@@ -48,9 +57,9 @@ async function main() {
     deployer: deployer.address,
     admin,
     treasury,
+    implementation: implAddress,
     registry: registryAddress,
     factory: factoryAddress,
-    implementation: await factory.implementation(),
     deployedAt: new Date().toISOString(),
   };
   const dir = path.join(__dirname, "..", "deployments");
@@ -58,6 +67,7 @@ async function main() {
   fs.writeFileSync(path.join(dir, `${hre.network.name}.json`), JSON.stringify(out, null, 2));
 
   console.log("\nAdd these to the app configuration:");
+  console.log(`VITE_DEFAULT_CHAIN_ID=46630`);
   console.log(`VITE_ASSET_REGISTRY_ADDRESS=${registryAddress}`);
   console.log(`VITE_TOKEN_FACTORY_ADDRESS=${factoryAddress}`);
 }

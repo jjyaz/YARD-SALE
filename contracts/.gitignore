@@ -1,5 +1,11 @@
 node_modules
 artifacts
 cache
+typechain-types
+dist
 .env
-deployments/*.json
+.env.*
+!.env.example
+!.env.deploy.example
+deployments/*.local.json
+deployments/robinhoodTestnet.json
