@@ -5,16 +5,29 @@ const LISTING_A = ethers.id("listing-a");
 const LISTING_B = ethers.id("listing-b");
 const META_HASH = ethers.id("metadata");
 const TERMS_HASH = ethers.id("terms");
-const URI = "https://cdn.example/passports/listing-a.json";
+const URI = "ipfs://bafy-example/listing-a.json";
 
 async function deployFixture() {
-  const [admin, seller, other, treasury] = await ethers.getSigners();
+  const [admin, seller, other, treasury, newAdmin] = await ethers.getSigners();
+  const Impl = await ethers.getContractFactory("YardCompanionToken");
+  const impl = await Impl.deploy();
   const Registry = await ethers.getContractFactory("YardSaleAssetRegistry");
   const registry = await Registry.deploy(admin.address);
   const Factory = await ethers.getContractFactory("YardTokenFactory");
-  const factory = await Factory.deploy(admin.address, await registry.getAddress(), treasury.address);
+  const factory = await Factory.deploy(
+    admin.address,
+    await registry.getAddress(),
+    treasury.address,
+    await impl.getAddress(),
+  );
   await registry.grantRole(await registry.PAIRING_ROLE(), await factory.getAddress());
-  return { admin, seller, other, treasury, registry, factory };
+  return { admin, seller, other, treasury, newAdmin, registry, factory, impl };
+}
+
+async function mintedFixture() {
+  const base = await deployFixture();
+  await base.registry.connect(base.seller).mintPassport(base.seller.address, LISTING_A, URI, META_HASH, TERMS_HASH);
+  return base;
 }
 
 describe("YardSaleAssetRegistry", () => {
@@ -33,7 +46,17 @@ describe("YardSaleAssetRegistry", () => {
     expect(await registry.tokenURI(1n)).to.equal(URI);
     expect(await registry.ownerOf(1n)).to.equal(seller.address);
     expect(await registry.tokenIdForListing(LISTING_A)).to.equal(1n);
+    expect(await registry.passportOfListing(LISTING_A)).to.equal(1n);
+    expect(await registry.passportOfListing(LISTING_B)).to.equal(0n);
     expect(await registry.totalMinted()).to.equal(1n);
+  });
+
+  it("has no setter for URI or hashes after mint", async () => {
+    const { registry } = await deployFixture();
+    const fns = registry.interface.fragments.filter((f) => f.type === "function").map((f) => f.name);
+    for (const banned of ["setTokenURI", "setMetadataHash", "setTermsHash", "updatePassport", "burn"]) {
+      expect(fns).to.not.include(banned);
+    }
   });
 
   it("allows only one mint per listing", async () => {
@@ -56,8 +79,16 @@ describe("YardSaleAssetRegistry", () => {
       registry.connect(seller).mintPassport(seller.address, LISTING_A, URI, ethers.ZeroHash, TERMS_HASH),
     ).to.be.revertedWithCustomError(registry, "EmptyHash");
     await expect(
+      registry.connect(seller).mintPassport(seller.address, LISTING_A, URI, META_HASH, ethers.ZeroHash),
+    ).to.be.revertedWithCustomError(registry, "EmptyHash");
+    await expect(
       registry.connect(seller).mintPassport(ethers.ZeroAddress, LISTING_A, URI, META_HASH, TERMS_HASH),
     ).to.be.revertedWithCustomError(registry, "ZeroAddress");
+  });
+
+  it("rejects a zero admin", async () => {
+    const Registry = await ethers.getContractFactory("YardSaleAssetRegistry");
+    await expect(Registry.deploy(ethers.ZeroAddress)).to.be.revertedWithCustomError(Registry, "ZeroAddress");
   });
 
   it("only lets a minter mint on behalf of someone else", async () => {
@@ -80,17 +111,26 @@ describe("YardSaleAssetRegistry", () => {
     );
     await expect(registry.connect(admin).setStatus(1n, 2)).to.emit(registry, "PassportStatusChanged").withArgs(1n, 0, 2);
     await expect(registry.connect(admin).setStatus(1n, 2)).to.be.revertedWithCustomError(registry, "StatusUnchanged");
+    await expect(registry.connect(admin).setStatus(42n, 1)).to.be.revertedWithCustomError(registry, "UnknownPassport");
   });
 
-  it("pauses mints and transfers", async () => {
-    const { registry, seller, admin, other } = await deployFixture();
+  it("pauses mints, transfers, status changes and pairing", async () => {
+    const { registry, seller, admin, other, factory } = await deployFixture();
     await registry.connect(seller).mintPassport(seller.address, LISTING_A, URI, META_HASH, TERMS_HASH);
+    await expect(registry.connect(seller).pause()).to.be.revertedWithCustomError(
+      registry,
+      "AccessControlUnauthorizedAccount",
+    );
     await registry.connect(admin).pause();
     await expect(
       registry.connect(seller).mintPassport(seller.address, LISTING_B, URI, META_HASH, TERMS_HASH),
     ).to.be.revertedWithCustomError(registry, "EnforcedPause");
     await expect(
       registry.connect(seller).transferFrom(seller.address, other.address, 1n),
+    ).to.be.revertedWithCustomError(registry, "EnforcedPause");
+    await expect(registry.connect(admin).setStatus(1n, 1)).to.be.revertedWithCustomError(registry, "EnforcedPause");
+    await expect(
+      factory.connect(seller).createCompanionToken(1n, "A", "A", 1000n, 1000n),
     ).to.be.revertedWithCustomError(registry, "EnforcedPause");
     await registry.connect(admin).unpause();
     await registry.connect(seller).transferFrom(seller.address, other.address, 1n);
@@ -100,49 +140,148 @@ describe("YardSaleAssetRegistry", () => {
   it("reverts reads for unknown passports", async () => {
     const { registry } = await deployFixture();
     await expect(registry.passport(99n)).to.be.revertedWithCustomError(registry, "UnknownPassport");
+    await expect(registry.companionTokenOf(99n)).to.be.revertedWithCustomError(registry, "UnknownPassport");
+    await expect(registry.tokenURI(99n)).to.be.revertedWithCustomError(registry, "UnknownPassport");
     expect(await registry.exists(99n)).to.equal(false);
   });
 
-  it("pairs a companion token only once and only from the pairing role", async () => {
-    const { registry, seller, other } = await deployFixture();
-    await registry.connect(seller).mintPassport(seller.address, LISTING_A, URI, META_HASH, TERMS_HASH);
+  it("pairs a companion token only from the pairing role, only once, only to a contract", async () => {
+    const { registry, seller, other, admin, factory } = await mintedFixture();
     await expect(registry.connect(other).setCompanionToken(1n, other.address)).to.be.revertedWithCustomError(
       registry,
       "AccessControlUnauthorizedAccount",
     );
+    // Even the admin cannot pair without PAIRING_ROLE.
+    await expect(registry.connect(admin).setCompanionToken(1n, other.address)).to.be.revertedWithCustomError(
+      registry,
+      "AccessControlUnauthorizedAccount",
+    );
+    await registry.connect(admin).grantRole(await registry.PAIRING_ROLE(), admin.address);
+    await expect(registry.connect(admin).setCompanionToken(1n, other.address)).to.be.revertedWithCustomError(
+      registry,
+      "NotAContract",
+    );
+    await expect(registry.connect(admin).setCompanionToken(1n, ethers.ZeroAddress)).to.be.revertedWithCustomError(
+      registry,
+      "ZeroAddress",
+    );
+    const factoryAddress = await factory.getAddress();
+    await expect(registry.connect(admin).setCompanionToken(1n, factoryAddress))
+      .to.emit(registry, "CompanionTokenPaired")
+      .withArgs(1n, factoryAddress);
+    await expect(registry.connect(admin).setCompanionToken(1n, factoryAddress)).to.be.revertedWithCustomError(
+      registry,
+      "CompanionTokenAlreadySet",
+    );
+  });
+
+  it("blocks re-entrant minting through the ERC721 receiver hook", async () => {
+    const { registry } = await deployFixture();
+    const Attacker = await ethers.getContractFactory("ReentrantMinter");
+    const attacker = await Attacker.deploy(await registry.getAddress());
+    await attacker.mint(LISTING_A, LISTING_B);
+    expect(await attacker.reentered()).to.equal(false);
+    expect(await registry.totalMinted()).to.equal(1n);
+    expect(await registry.tokenIdForListing(LISTING_B)).to.equal(0n);
+    const reason = await attacker.lastRevert();
+    expect(reason).to.equal(registry.interface.encodeErrorResult("ReentrancyGuardReentrantCall", []));
+  });
+
+  it("supports ERC-721 and AccessControl interfaces", async () => {
+    const { registry } = await deployFixture();
+    expect(await registry.supportsInterface("0x80ac58cd")).to.equal(true); // ERC721
+    expect(await registry.supportsInterface("0x5b5e139f")).to.equal(true); // ERC721Metadata
+    expect(await registry.supportsInterface("0x7965db0b")).to.equal(true); // AccessControl
+  });
+});
+
+describe("Role transfer and renounce", () => {
+  it("hands admin roles to a new admin and lets the deployer renounce everything", async () => {
+    const { registry, factory, admin, newAdmin, seller } = await deployFixture();
+    const DEFAULT_ADMIN_ROLE = await registry.DEFAULT_ADMIN_ROLE();
+    const PAUSER_ROLE = await registry.PAUSER_ROLE();
+    const STATUS_ROLE = await registry.STATUS_ROLE();
+    const MINTER_ROLE = await registry.MINTER_ROLE();
+
+    await registry.connect(admin).grantRole(DEFAULT_ADMIN_ROLE, newAdmin.address);
+    await registry.connect(admin).grantRole(PAUSER_ROLE, newAdmin.address);
+    await registry.connect(admin).grantRole(STATUS_ROLE, newAdmin.address);
+    await factory.connect(admin).grantRole(DEFAULT_ADMIN_ROLE, newAdmin.address);
+    await factory.connect(admin).grantRole(await factory.PAUSER_ROLE(), newAdmin.address);
+
+    for (const role of [MINTER_ROLE, PAUSER_ROLE, STATUS_ROLE, DEFAULT_ADMIN_ROLE]) {
+      await registry.connect(admin).renounceRole(role, admin.address);
+      expect(await registry.hasRole(role, admin.address)).to.equal(false);
+    }
+    await factory.connect(admin).renounceRole(await factory.PAUSER_ROLE(), admin.address);
+    await factory.connect(admin).renounceRole(DEFAULT_ADMIN_ROLE, admin.address);
+
+    // Old admin is powerless.
+    await expect(registry.connect(admin).pause()).to.be.revertedWithCustomError(
+      registry,
+      "AccessControlUnauthorizedAccount",
+    );
+    await expect(
+      registry.connect(admin).grantRole(PAUSER_ROLE, admin.address),
+    ).to.be.revertedWithCustomError(registry, "AccessControlUnauthorizedAccount");
+    await expect(factory.connect(admin).setTreasury(seller.address)).to.be.revertedWithCustomError(
+      factory,
+      "AccessControlUnauthorizedAccount",
+    );
+
+    // New admin is in control.
+    await registry.connect(newAdmin).pause();
+    await registry.connect(newAdmin).unpause();
+    await factory.connect(newAdmin).pause();
+    await factory.connect(newAdmin).unpause();
+    await expect(factory.connect(newAdmin).setTreasury(seller.address))
+      .to.emit(factory, "TreasuryUpdated")
+      .withArgs((await ethers.getSigners())[3].address, seller.address);
+    expect(await registry.hasRole(await registry.PAIRING_ROLE(), await factory.getAddress())).to.equal(true);
+  });
+
+  it("cannot renounce a role for someone else", async () => {
+    const { registry, admin, other } = await deployFixture();
+    await expect(
+      registry.connect(other).renounceRole(await registry.DEFAULT_ADMIN_ROLE(), admin.address),
+    ).to.be.revertedWithCustomError(registry, "AccessControlBadConfirmation");
   });
 });
 
 describe("YardTokenFactory + YardCompanionToken", () => {
-  async function mintedFixture() {
-    const base = await deployFixture();
-    await base.registry
-      .connect(base.seller)
-      .mintPassport(base.seller.address, LISTING_A, URI, META_HASH, TERMS_HASH);
-    return base;
-  }
-
   it("creates a fixed-supply clone paired to the passport", async () => {
-    const { factory, registry, seller, treasury } = await mintedFixture();
+    const { factory, registry, seller, treasury, impl } = await mintedFixture();
     const supply = ethers.parseUnits("1000000", 18);
     const allocation = ethers.parseUnits("700000", 18);
     const predicted = await factory.predictTokenAddress(1n);
 
     await expect(factory.connect(seller).createCompanionToken(1n, "Teak Desk", "TEAK", supply, allocation))
       .to.emit(factory, "CompanionTokenCreated")
-      .withArgs(1n, predicted, seller.address, "Teak Desk", "TEAK", supply, allocation);
+      .withArgs(1n, predicted, seller.address, "Teak Desk", "TEAK", supply, allocation)
+      .and.to.emit(registry, "CompanionTokenPaired")
+      .withArgs(1n, predicted);
 
     const token = await ethers.getContractAt("YardCompanionToken", predicted);
     expect(await token.name()).to.equal("Teak Desk");
     expect(await token.symbol()).to.equal("TEAK");
+    expect(await token.decimals()).to.equal(18n);
     expect(await token.totalSupply()).to.equal(supply);
     expect(await token.balanceOf(seller.address)).to.equal(allocation);
     expect(await token.balanceOf(treasury.address)).to.equal(supply - allocation);
     expect(await token.passportTokenId()).to.equal(1n);
+    expect(await token.creator()).to.equal(seller.address);
+    expect(await token.factory()).to.equal(await factory.getAddress());
     expect(await token.registry()).to.equal(await registry.getAddress());
     expect(await registry.companionTokenOf(1n)).to.equal(predicted);
     expect(await factory.tokenForPassport(1n)).to.equal(predicted);
-    expect(await ethers.provider.getCode(predicted)).to.not.equal("0x");
+    expect(await factory.passportForToken(predicted)).to.equal(1n);
+    expect(await factory.isCompanionToken(predicted)).to.equal(true);
+    expect(await factory.isCompanionToken(await impl.getAddress())).to.equal(false);
+
+    // ERC-1167 minimal proxy pointing at the implementation.
+    const code = await ethers.provider.getCode(predicted);
+    const implHex = (await impl.getAddress()).slice(2).toLowerCase();
+    expect(code.toLowerCase()).to.equal(`0x363d3d373d3d3d363d73${implHex}5af43d82803e903d91602b57fd5bf3`);
   });
 
   it("never allows a second token for the same passport", async () => {
@@ -154,16 +293,50 @@ describe("YardTokenFactory + YardCompanionToken", () => {
     ).to.be.revertedWithCustomError(factory, "PassportAlreadyTokenized");
   });
 
-  it("only the passport owner can tokenize", async () => {
-    const { factory, other } = await mintedFixture();
+  it("refuses a second token even if the registry was paired out of band", async () => {
+    const { factory, registry, admin, seller } = await mintedFixture();
+    await registry.connect(admin).grantRole(await registry.PAIRING_ROLE(), admin.address);
+    await registry.connect(admin).setCompanionToken(1n, await factory.getAddress());
+    await expect(
+      factory.connect(seller).createCompanionToken(1n, "B", "B", 1000n, 1000n),
+    ).to.be.revertedWithCustomError(factory, "PassportAlreadyTokenized");
+  });
+
+  it("only the passport owner can tokenize, including after transfer", async () => {
+    const { factory, registry, seller, other } = await mintedFixture();
     const supply = ethers.parseUnits("1000", 18);
     await expect(
       factory.connect(other).createCompanionToken(1n, "A", "A", supply, supply),
     ).to.be.revertedWithCustomError(factory, "NotPassportOwner");
+    await registry.connect(seller).transferFrom(seller.address, other.address, 1n);
+    await expect(
+      factory.connect(seller).createCompanionToken(1n, "A", "A", supply, supply),
+    ).to.be.revertedWithCustomError(factory, "NotPassportOwner");
+    await expect(factory.connect(other).createCompanionToken(1n, "A", "A", supply, supply)).to.emit(
+      factory,
+      "CompanionTokenCreated",
+    );
+  });
+
+  it("rejects contract callers that do not own the passport", async () => {
+    const { factory } = await mintedFixture();
+    const Caller = await ethers.getContractFactory("ContractCaller");
+    const caller = await Caller.deploy();
+    await expect(caller.callFactory(await factory.getAddress(), 1n)).to.be.revertedWithCustomError(
+      factory,
+      "NotPassportOwner",
+    );
+  });
+
+  it("rejects unknown passports", async () => {
+    const { factory, registry, seller } = await mintedFixture();
+    await expect(
+      factory.connect(seller).createCompanionToken(77n, "A", "A", 1000n, 1000n),
+    ).to.be.revertedWithCustomError(registry, "ERC721NonexistentToken");
   });
 
   it("validates token inputs", async () => {
-    const { factory, seller } = await mintedFixture();
+    const { factory, seller, impl } = await mintedFixture();
     const supply = ethers.parseUnits("1000", 18);
     await expect(factory.connect(seller).createCompanionToken(1n, "", "A", supply, supply)).to.be.revertedWithCustomError(
       factory,
@@ -173,56 +346,181 @@ describe("YardTokenFactory + YardCompanionToken", () => {
       factory,
       "EmptySymbol",
     );
-    const impl = await ethers.getContractAt("YardCompanionToken", await factory.implementation());
+    await expect(
+      factory.connect(seller).createCompanionToken(1n, "x".repeat(65), "A", supply, supply),
+    ).to.be.revertedWithCustomError(factory, "NameTooLong");
+    await expect(
+      factory.connect(seller).createCompanionToken(1n, "A", "x".repeat(17), supply, supply),
+    ).to.be.revertedWithCustomError(factory, "SymbolTooLong");
     await expect(factory.connect(seller).createCompanionToken(1n, "A", "A", 0, 0)).to.be.revertedWithCustomError(
       impl,
       "ZeroSupply",
     );
+    await expect(factory.connect(seller).createCompanionToken(1n, "A", "A", supply, 0)).to.be.revertedWithCustomError(
+      impl,
+      "InvalidAllocation",
+    );
     await expect(
       factory.connect(seller).createCompanionToken(1n, "A", "A", supply, supply + 1n),
     ).to.be.revertedWithCustomError(impl, "InvalidAllocation");
+    const max = await impl.MAX_SUPPLY();
+    await expect(
+      factory.connect(seller).createCompanionToken(1n, "A", "A", max + 1n, 1n),
+    ).to.be.revertedWithCustomError(impl, "SupplyTooLarge");
+    await expect(factory.connect(seller).createCompanionToken(1n, "A", "A", max, max)).to.emit(
+      factory,
+      "CompanionTokenCreated",
+    );
   });
 
-  it("exposes no minting, tax, blacklist, or owner surface", async () => {
+  it("validates factory constructor arguments", async () => {
+    const { registry, treasury, impl, admin } = await deployFixture();
+    const Factory = await ethers.getContractFactory("YardTokenFactory");
+    const registryAddress = await registry.getAddress();
+    const implAddress = await impl.getAddress();
+    await expect(Factory.deploy(ethers.ZeroAddress, registryAddress, treasury.address, implAddress))
+      .to.be.revertedWithCustomError(Factory, "ZeroAddress");
+    await expect(Factory.deploy(admin.address, ethers.ZeroAddress, treasury.address, implAddress))
+      .to.be.revertedWithCustomError(Factory, "ZeroAddress");
+    await expect(Factory.deploy(admin.address, registryAddress, ethers.ZeroAddress, implAddress))
+      .to.be.revertedWithCustomError(Factory, "ZeroAddress");
+    await expect(Factory.deploy(admin.address, registryAddress, treasury.address, ethers.ZeroAddress))
+      .to.be.revertedWithCustomError(Factory, "ZeroAddress");
+    await expect(Factory.deploy(admin.address, treasury.address, treasury.address, implAddress))
+      .to.be.revertedWithCustomError(Factory, "NotAContract");
+    await expect(Factory.deploy(admin.address, registryAddress, treasury.address, treasury.address))
+      .to.be.revertedWithCustomError(Factory, "NotAContract");
+  });
+
+  it("fails cleanly when the factory lacks PAIRING_ROLE", async () => {
+    const { registry, seller, treasury, impl, admin } = await deployFixture();
+    const Factory = await ethers.getContractFactory("YardTokenFactory");
+    const rogue = await Factory.deploy(admin.address, await registry.getAddress(), treasury.address, await impl.getAddress());
+    await registry.connect(seller).mintPassport(seller.address, LISTING_A, URI, META_HASH, TERMS_HASH);
+    await expect(
+      rogue.connect(seller).createCompanionToken(1n, "A", "A", 1000n, 1000n),
+    ).to.be.revertedWithCustomError(registry, "AccessControlUnauthorizedAccount");
+    expect(await registry.companionTokenOf(1n)).to.equal(ethers.ZeroAddress);
+    expect(await rogue.tokenForPassport(1n)).to.equal(ethers.ZeroAddress);
+  });
+
+  it("exposes no minting, tax, blacklist, owner, or upgrade surface", async () => {
     const { factory, seller } = await mintedFixture();
     const supply = ethers.parseUnits("1000", 18);
     await factory.connect(seller).createCompanionToken(1n, "A", "A", supply, supply);
     const token = await ethers.getContractAt("YardCompanionToken", await factory.tokenForPassport(1n));
     const fns = token.interface.fragments.filter((f) => f.type === "function").map((f) => f.name);
-    for (const banned of ["mint", "burn", "setTax", "setFee", "blacklist", "owner", "rebase", "upgradeTo", "pause"]) {
-      expect(fns).to.not.include(banned);
+    for (const banned of [
+      "mint",
+      "burn",
+      "burnFrom",
+      "setTax",
+      "setFee",
+      "setFees",
+      "blacklist",
+      "setBlacklist",
+      "owner",
+      "transferOwnership",
+      "rebase",
+      "upgradeTo",
+      "upgradeToAndCall",
+      "pause",
+      "unpause",
+      "claim",
+      "redeem",
+      "distribute",
+      "snapshot",
+    ]) {
+      expect(fns, `${banned} must not exist`).to.not.include(banned);
     }
+    expect(fns.sort()).to.deep.equal(
+      [
+        "MAX_SUPPLY",
+        "RIGHTS_DISCLAIMER",
+        "allowance",
+        "approve",
+        "balanceOf",
+        "creator",
+        "decimals",
+        "factory",
+        "initialize",
+        "name",
+        "passportTokenId",
+        "registry",
+        "symbol",
+        "totalSupply",
+        "transfer",
+        "transferFrom",
+      ].sort(),
+    );
     expect(await token.RIGHTS_DISCLAIMER()).to.contain("no ownership");
   });
 
-  it("cannot be re-initialized", async () => {
-    const { factory, seller, treasury, registry } = await mintedFixture();
+  it("cannot be re-initialized and the implementation itself is locked", async () => {
+    const { factory, seller, treasury, registry, impl } = await mintedFixture();
     const supply = ethers.parseUnits("1000", 18);
     await factory.connect(seller).createCompanionToken(1n, "A", "A", supply, supply);
     const token = await ethers.getContractAt("YardCompanionToken", await factory.tokenForPassport(1n));
-    await expect(
-      token
-        .connect(seller)
-        .initialize("X", "X", supply, supply, seller.address, treasury.address, await registry.getAddress(), 1n),
-    ).to.be.revertedWithCustomError(token, "InvalidInitialization");
+    const args = ["X", "X", supply, supply, seller.address, treasury.address, await registry.getAddress(), 1n];
+    await expect(token.connect(seller).initialize(...args)).to.be.revertedWithCustomError(token, "InvalidInitialization");
+    await expect(impl.connect(seller).initialize(...args)).to.be.revertedWithCustomError(impl, "InvalidInitialization");
+    expect(await impl.totalSupply()).to.equal(0n);
   });
 
-  it("transfers full supply without loss", async () => {
-    const { factory, seller, other } = await mintedFixture();
+  it("keeps total supply fixed through transfers and approvals", async () => {
+    const { factory, seller, other, treasury } = await mintedFixture();
     const supply = ethers.parseUnits("1000", 18);
-    await factory.connect(seller).createCompanionToken(1n, "A", "A", supply, supply);
+    const allocation = ethers.parseUnits("600", 18);
+    await factory.connect(seller).createCompanionToken(1n, "A", "A", supply, allocation);
     const token = await ethers.getContractAt("YardCompanionToken", await factory.tokenForPassport(1n));
-    await token.connect(seller).transfer(other.address, supply);
-    expect(await token.balanceOf(other.address)).to.equal(supply);
+    await token.connect(seller).transfer(other.address, allocation / 2n);
+    await token.connect(seller).approve(other.address, allocation / 2n);
+    await token.connect(other).transferFrom(seller.address, other.address, allocation / 2n);
+    expect(await token.balanceOf(seller.address)).to.equal(0n);
+    expect(await token.balanceOf(other.address)).to.equal(allocation);
+    expect(await token.balanceOf(treasury.address)).to.equal(supply - allocation);
     expect(await token.totalSupply()).to.equal(supply);
+    await expect(token.connect(other).transfer(seller.address, allocation + 1n)).to.be.revertedWithCustomError(
+      token,
+      "ERC20InsufficientBalance",
+    );
   });
 
-  it("pauses token creation", async () => {
+  it("pauses token creation only via PAUSER_ROLE", async () => {
     const { factory, admin, seller } = await mintedFixture();
+    await expect(factory.connect(seller).pause()).to.be.revertedWithCustomError(
+      factory,
+      "AccessControlUnauthorizedAccount",
+    );
     await factory.connect(admin).pause();
     const supply = ethers.parseUnits("1000", 18);
     await expect(
       factory.connect(seller).createCompanionToken(1n, "A", "A", supply, supply),
     ).to.be.revertedWithCustomError(factory, "EnforcedPause");
+    await factory.connect(admin).unpause();
+    await expect(factory.connect(seller).createCompanionToken(1n, "A", "A", supply, supply)).to.emit(
+      factory,
+      "CompanionTokenCreated",
+    );
+  });
+
+  it("gives each passport a distinct deterministic token address", async () => {
+    const { factory, registry, seller } = await mintedFixture();
+    await registry.connect(seller).mintPassport(seller.address, LISTING_B, URI, META_HASH, TERMS_HASH);
+    const a = await factory.predictTokenAddress(1n);
+    const b = await factory.predictTokenAddress(2n);
+    expect(a).to.not.equal(b);
+    await factory.connect(seller).createCompanionToken(1n, "A", "A", 10n, 10n);
+    await factory.connect(seller).createCompanionToken(2n, "B", "B", 10n, 10n);
+    expect(await factory.tokenForPassport(1n)).to.equal(a);
+    expect(await factory.tokenForPassport(2n)).to.equal(b);
+  });
+
+  it("rejects a zero treasury update", async () => {
+    const { factory, admin } = await deployFixture();
+    await expect(factory.connect(admin).setTreasury(ethers.ZeroAddress)).to.be.revertedWithCustomError(
+      factory,
+      "ZeroAddress",
+    );
   });
 });
