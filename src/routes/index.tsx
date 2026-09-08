@@ -79,49 +79,38 @@ function Home() {
     <>
       <section className="mx-auto max-w-[1440px] px-4 pt-8 sm:px-6 lg:px-10">
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
-          <div className="grid items-stretch lg:grid-cols-[1.05fr_1fr]">
-            <div className="flex flex-col justify-center gap-7 p-7 sm:p-12">
-              <img
-                src={banner.url}
-                alt="YARD SALE — Your Junk Deserves To Be On-Chain"
-                width={1920}
-                height={815}
-                className="w-full max-w-[460px]"
-              />
-              <p className="prose-measure text-lg text-muted-foreground">
-                A neighbourhood marketplace for real second-hand things. List the lamp, meet the
-                buyer on the driveway — and when you're ready, turn the listing into a real-world
-                asset on-chain. Mint an Item Passport to prove what the thing is and where it's been,
-                then pair it with a companion token and launch it through the Launchpad.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <Button asChild size="lg" className="rounded-xl">
-                  <Link to="/browse">
-                    Browse the yard
-                    <ArrowRight className="ml-1 h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button asChild size="lg" variant="outline" className="rounded-xl">
-                  <Link to="/sell/new">List an item</Link>
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Unaudited beta. On-chain minting, tokens and escrow are switched off —{" "}
-                <Link to="/status" className="underline underline-offset-4">
-                  see exactly what's configured
+          <img
+            src={banner.url}
+            alt="YARD SALE — Your Junk Deserves To Be On-Chain"
+            width={1920}
+            height={815}
+            className="h-full max-h-[460px] w-full object-cover sm:max-h-[560px]"
+          />
+          <div className="flex flex-col gap-7 p-7 sm:p-12">
+            <p className="prose-measure text-lg text-muted-foreground">
+              A neighbourhood marketplace for real second-hand things. List the lamp, meet the
+              buyer on the driveway — and when you're ready, turn the listing into a real-world
+              asset on-chain. Mint an Item Passport to prove what the thing is and where it's been,
+              then pair it with a companion token and launch it through the Launchpad.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button asChild size="lg" className="rounded-xl">
+                <Link to="/browse">
+                  Browse the yard
+                  <ArrowRight className="ml-1 h-4 w-4" />
                 </Link>
-                .
-              </p>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="rounded-xl">
+                <Link to="/sell/new">List an item</Link>
+              </Button>
             </div>
-            <div className="min-h-[280px] bg-secondary lg:min-h-[520px]">
-              <img
-                src={banner.url}
-                alt="YARD SALE banner — Your Junk Deserves To Be On-Chain"
-                width={1920}
-                height={815}
-                className="h-full w-full object-cover"
-              />
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Unaudited beta. On-chain minting, tokens and escrow are switched off —{" "}
+              <Link to="/status" className="underline underline-offset-4">
+                see exactly what's configured
+              </Link>
+              .
+            </p>
           </div>
         </div>
       </section>
