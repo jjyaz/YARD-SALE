@@ -294,7 +294,7 @@ function Home() {
         <div className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-center">
           <div className="overflow-hidden rounded-2xl border border-border">
             <img
-              src={yardImages.pickup}
+              src={yardImages.porchPickup}
               alt="A buyer and seller meeting in person to hand over a purchased item at a yard sale"
               width={1200}
               height={900}
