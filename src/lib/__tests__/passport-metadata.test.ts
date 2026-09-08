@@ -29,6 +29,11 @@ const base = {
   sellerHandle: "oak_lane",
   images: [{ url: "https://cdn/a.jpg", sha256: "0xaa" }],
   frozenAt: "2026-09-08T00:00:00.000Z",
+  termsHash: "0x473d0eeaaf7b4ec251c2bf167e865d0e5e1c9d15574572e2cd93c62367efb8a3",
+  chainId: 46630,
+  registry: "0x1111111111111111111111111111111111111111",
+  attestation: { possession: true, rightToSell: true, accurate: true, notProhibited: true, understandsNoRights: true },
+  attestedAt: "2026-09-08T00:00:00.000Z",
 };
 
 describe("canonicalJson", () => {
