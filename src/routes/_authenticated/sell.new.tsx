@@ -177,42 +177,62 @@ function SellWizard() {
   }
 
   async function uploadPhotos(files: FileList | null) {
-    if (!files || !draft || !user) return;
-    for (const file of Array.from(files).slice(0, 8)) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error(`${file.name} is larger than 10MB.`);
-        continue;
+    if (!files || files.length === 0 || !draft || !user) return;
+    setUploading(true);
+    try {
+      const room = Math.max(0, 8 - media.length);
+      if (room === 0) {
+        toast.error("You already have 8 photos. Remove one first.");
+        return;
       }
-      const path = `${user.id}/${draft.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
-      const { error } = await supabase.storage.from("listing-public").upload(path, file, {
-        contentType: file.type,
-        upsert: false,
-      });
-      if (error) {
-        toast.error(error.message);
-        continue;
+      const chosen = Array.from(files).slice(0, room);
+      let added = 0;
+      for (const file of chosen) {
+        if (!file.type.startsWith("image/")) {
+          toast.error(`${file.name} is not an image.`);
+          continue;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          toast.error(`${file.name} is larger than 10MB.`);
+          continue;
+        }
+        const path = `${user.id}/${draft.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+        const { error } = await supabase.storage.from("listing-public").upload(path, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+        if (error) {
+          toast.error(error.message);
+          continue;
+        }
+        const { data: signed } = await supabase.storage
+          .from("listing-public")
+          .createSignedUrl(path, SIGNED_URL_TTL);
+        const ordinal = media.length + added;
+        const { data: row, error: mediaError } = await supabase
+          .from("listing_media")
+          .insert({
+            listing_id: draft.id,
+            storage_path: path,
+            public_url: signed?.signedUrl ?? null,
+            ordinal,
+            is_cover: ordinal === 0,
+          })
+          .select("id, storage_path, public_url")
+          .single();
+        if (mediaError) {
+          toast.error(mediaError.message);
+          continue;
+        }
+        added += 1;
+        setMedia((prev) => [...prev, row]);
       }
-      const { data: signed } = await supabase.storage
-        .from("listing-public")
-        .createSignedUrl(path, SIGNED_URL_TTL);
-      const { data: row, error: mediaError } = await supabase
-        .from("listing_media")
-        .insert({
-          listing_id: draft.id,
-          storage_path: path,
-          public_url: signed?.signedUrl ?? null,
-          ordinal: media.length,
-          is_cover: media.length === 0,
-        })
-        .select("id, storage_path, public_url")
-        .single();
-      if (mediaError) {
-        toast.error(mediaError.message);
-        continue;
-      }
-      setMedia((prev) => [...prev, row]);
+      if (added > 0) toast.success(added === 1 ? "Photo uploaded." : `${added} photos uploaded.`);
+    } finally {
+      setUploading(false);
     }
   }
+
 
   async function removePhoto(row: MediaRow) {
     await supabase.from("listing_media").delete().eq("id", row.id);
