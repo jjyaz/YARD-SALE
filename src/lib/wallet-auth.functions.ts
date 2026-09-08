@@ -159,9 +159,12 @@ export const verifyWalletSignIn = createServerFn({ method: "POST" })
         .eq("address", address);
     }
 
+    const { data: account } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const loginEmail = account?.user?.email ?? email;
+
     const { data: link, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: "magiclink",
-      email,
+      email: loginEmail,
     });
     if (linkError || !link.properties?.hashed_token) {
       throw new Error(linkError?.message ?? "Could not start a session for this wallet.");
