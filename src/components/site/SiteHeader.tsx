@@ -143,6 +143,15 @@ export function SiteHeader() {
                 >
                   {user ? "My Yard" : "Sign in"}
                 </Link>
+                {user ? (
+                  <Link
+                    to="/launchpad"
+                    onClick={() => setMenuOpen(false)}
+                    className="rounded-lg px-3 py-3 text-base font-medium hover:bg-secondary"
+                  >
+                    Launchpad
+                  </Link>
+                ) : null}
                 <Link
                   to="/status"
                   onClick={() => setMenuOpen(false)}
