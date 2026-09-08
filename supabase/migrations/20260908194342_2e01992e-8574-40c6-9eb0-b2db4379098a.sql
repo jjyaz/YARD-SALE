@@ -1,0 +1,1 @@
+ALTER TABLE public.wallet_nonces ALTER COLUMN user_id DROP NOT NULL;
