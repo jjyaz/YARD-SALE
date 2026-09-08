@@ -10,19 +10,40 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as BrowseRouteImport } from './routes/browse'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProhibitedItemsRouteImport } from './routes/prohibited-items'
 import { Route as RiskDisclosureRouteImport } from './routes/risk-disclosure'
+import { Route as StatusRouteImport } from './routes/status'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TrustSafetyRouteImport } from './routes/trust-safety'
+import { Route as ItemSlugRouteImport } from './routes/item.$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BrowseRoute = BrowseRouteImport.update({
+  id: '/browse',
+  path: '/browse',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HowItWorksRoute = HowItWorksRouteImport.update({
   id: '/how-it-works',
   path: '/how-it-works',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProhibitedItemsRoute = ProhibitedItemsRouteImport.update({
@@ -35,64 +56,121 @@ const RiskDisclosureRoute = RiskDisclosureRouteImport.update({
   path: '/risk-disclosure',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StatusRoute = StatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TrustSafetyRoute = TrustSafetyRouteImport.update({
   id: '/trust-safety',
   path: '/trust-safety',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ItemSlugRoute = ItemSlugRouteImport.update({
+  id: '/item/$slug',
+  path: '/item/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/browse': typeof BrowseRoute
   '/how-it-works': typeof HowItWorksRoute
+  '/privacy': typeof PrivacyRoute
   '/prohibited-items': typeof ProhibitedItemsRoute
   '/risk-disclosure': typeof RiskDisclosureRoute
+  '/status': typeof StatusRoute
+  '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/item/$slug': typeof ItemSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/browse': typeof BrowseRoute
   '/how-it-works': typeof HowItWorksRoute
+  '/privacy': typeof PrivacyRoute
   '/prohibited-items': typeof ProhibitedItemsRoute
   '/risk-disclosure': typeof RiskDisclosureRoute
+  '/status': typeof StatusRoute
+  '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/item/$slug': typeof ItemSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/browse': typeof BrowseRoute
   '/how-it-works': typeof HowItWorksRoute
+  '/privacy': typeof PrivacyRoute
   '/prohibited-items': typeof ProhibitedItemsRoute
   '/risk-disclosure': typeof RiskDisclosureRoute
+  '/status': typeof StatusRoute
+  '/terms': typeof TermsRoute
   '/trust-safety': typeof TrustSafetyRoute
+  '/item/$slug': typeof ItemSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
+    | '/browse'
     | '/how-it-works'
+    | '/privacy'
     | '/prohibited-items'
     | '/risk-disclosure'
+    | '/status'
+    | '/terms'
     | '/trust-safety'
+    | '/item/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/auth'
+    | '/browse'
     | '/how-it-works'
+    | '/privacy'
     | '/prohibited-items'
     | '/risk-disclosure'
+    | '/status'
+    | '/terms'
     | '/trust-safety'
+    | '/item/$slug'
   id:
     | '__root__'
     | '/'
+    | '/auth'
+    | '/browse'
     | '/how-it-works'
+    | '/privacy'
     | '/prohibited-items'
     | '/risk-disclosure'
+    | '/status'
+    | '/terms'
     | '/trust-safety'
+    | '/item/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthRoute: typeof AuthRoute
+  BrowseRoute: typeof BrowseRoute
   HowItWorksRoute: typeof HowItWorksRoute
+  PrivacyRoute: typeof PrivacyRoute
   ProhibitedItemsRoute: typeof ProhibitedItemsRoute
   RiskDisclosureRoute: typeof RiskDisclosureRoute
+  StatusRoute: typeof StatusRoute
+  TermsRoute: typeof TermsRoute
   TrustSafetyRoute: typeof TrustSafetyRoute
+  ItemSlugRoute: typeof ItemSlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -104,11 +182,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/browse': {
+      id: '/browse'
+      path: '/browse'
+      fullPath: '/browse'
+      preLoaderRoute: typeof BrowseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/how-it-works': {
       id: '/how-it-works'
       path: '/how-it-works'
       fullPath: '/how-it-works'
       preLoaderRoute: typeof HowItWorksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/prohibited-items': {
@@ -125,6 +224,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RiskDisclosureRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/status': {
+      id: '/status'
+      path: '/status'
+      fullPath: '/status'
+      preLoaderRoute: typeof StatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/trust-safety': {
       id: '/trust-safety'
       path: '/trust-safety'
@@ -132,15 +245,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrustSafetyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/item/$slug': {
+      id: '/item/$slug'
+      path: '/item/$slug'
+      fullPath: '/item/$slug'
+      preLoaderRoute: typeof ItemSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthRoute: AuthRoute,
+  BrowseRoute: BrowseRoute,
   HowItWorksRoute: HowItWorksRoute,
+  PrivacyRoute: PrivacyRoute,
   ProhibitedItemsRoute: ProhibitedItemsRoute,
   RiskDisclosureRoute: RiskDisclosureRoute,
+  StatusRoute: StatusRoute,
+  TermsRoute: TermsRoute,
   TrustSafetyRoute: TrustSafetyRoute,
+  ItemSlugRoute: ItemSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

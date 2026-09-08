@@ -91,14 +91,14 @@ export const getFeaturedListings = createServerFn({ method: "GET" }).handler(asy
 });
 
 export type BrowseInput = {
-  q?: string;
-  category?: string;
-  condition?: string;
-  city?: string;
-  passport?: string;
-  maxPrice?: number;
-  sort?: string;
-  page?: number;
+  q?: string | undefined;
+  category?: string | undefined;
+  condition?: string | undefined;
+  city?: string | undefined;
+  passport?: string | undefined;
+  maxPrice?: number | undefined;
+  sort?: string | undefined;
+  page?: number | undefined;
 };
 
 export const browseListings = createServerFn({ method: "GET" })
