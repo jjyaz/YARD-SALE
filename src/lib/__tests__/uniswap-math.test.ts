@@ -178,8 +178,9 @@ describe("buildLiquidityPlan", () => {
     expect(plan.token0).toBe(WETH);
     expect(plan.amount0Desired).toBe(10n ** 18n);
     expect(plan.amount1Desired).toBe(1_000n * 10n ** 18n);
-    // price token1/token0 = tokens per ETH = 1000
-    expect(priceFromSqrtPriceX96(plan.sqrtPriceX96, 6)).toBe("1000");
+    // price token1/token0 = tokens per ETH = 1000 (sqrt is floored, so allow a sub-ppb rounding error)
+    const decoded = Number(priceFromSqrtPriceX96(plan.sqrtPriceX96, 18));
+    expect(Math.abs(decoded - 1000) / 1000).toBeLessThan(1e-9);
     expect(plan.priceEthPerToken).toBe("0.001");
   });
 
