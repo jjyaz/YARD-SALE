@@ -125,6 +125,7 @@ export type EligibilityReason =
   | "not_published"
   | "no_photos"
   | "no_terms"
+  | "unknown_terms"
   | "demo_listing"
   | "already_minted";
 
@@ -134,12 +135,15 @@ export function passportEligibility(listing: {
   terms_version: string | null;
   mediaCount: number;
   hasConfirmedPassport: boolean;
+  /** Whether `terms_version` resolves to a real row in `terms_versions`. Omit when unknown. */
+  termsKnown?: boolean;
 }): { eligible: boolean; reason: EligibilityReason } {
   if (listing.hasConfirmedPassport) return { eligible: false, reason: "already_minted" };
   if (listing.is_demo) return { eligible: false, reason: "demo_listing" };
   if (listing.status !== "published") return { eligible: false, reason: "not_published" };
   if (listing.mediaCount < 1) return { eligible: false, reason: "no_photos" };
   if (!listing.terms_version) return { eligible: false, reason: "no_terms" };
+  if (listing.termsKnown === false) return { eligible: false, reason: "unknown_terms" };
   return { eligible: true, reason: "ok" };
 }
 
@@ -148,6 +152,7 @@ export const eligibilityLabel: Record<EligibilityReason, string> = {
   not_published: "Publish the listing first",
   no_photos: "Add at least one photo",
   no_terms: "Accept the listing terms in the wizard",
+  unknown_terms: "Its terms version no longer exists — republish it under the current terms",
   demo_listing: "Demo listings cannot be minted",
   already_minted: "Passport already minted",
 };
