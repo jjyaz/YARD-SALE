@@ -78,7 +78,7 @@ export type Database = {
           chain_id: number
           confirmed_at: string | null
           created_at: string
-          creator_allocation: number
+          creator_allocation: string
           disclaimer_accepted_at: string
           factory_address: string
           failure_reason: string | null
@@ -92,7 +92,7 @@ export type Database = {
           submitted_at: string | null
           symbol: string
           token_address: string | null
-          total_supply: number
+          total_supply: string
           tx_hash: string | null
           updated_at: string
           user_id: string
@@ -104,7 +104,7 @@ export type Database = {
           chain_id: number
           confirmed_at?: string | null
           created_at?: string
-          creator_allocation: number
+          creator_allocation: string
           disclaimer_accepted_at?: string
           factory_address: string
           failure_reason?: string | null
@@ -118,7 +118,7 @@ export type Database = {
           submitted_at?: string | null
           symbol: string
           token_address?: string | null
-          total_supply: number
+          total_supply: string
           tx_hash?: string | null
           updated_at?: string
           user_id: string
@@ -130,7 +130,7 @@ export type Database = {
           chain_id?: number
           confirmed_at?: string | null
           created_at?: string
-          creator_allocation?: number
+          creator_allocation?: string
           disclaimer_accepted_at?: string
           factory_address?: string
           failure_reason?: string | null
@@ -144,7 +144,7 @@ export type Database = {
           submitted_at?: string | null
           symbol?: string
           token_address?: string | null
-          total_supply?: number
+          total_supply?: string
           tx_hash?: string | null
           updated_at?: string
           user_id?: string
