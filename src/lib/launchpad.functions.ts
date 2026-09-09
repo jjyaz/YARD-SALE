@@ -399,6 +399,9 @@ export const prepareMint = createServerFn({ method: "POST" })
         metadataURI: passport.metadata_uri,
         metadataHash: passport.metadata_hash,
         termsHash: passport.terms_hash,
+        voucherNonce: voucher.nonce.toString(),
+        voucherExpiry: new Date(Number(voucher.expiry) * 1000).toISOString(),
+        voucherSigner: signerAddress,
       },
       wallet,
       balanceWei: balance.toString(),
@@ -550,14 +553,66 @@ export const reconcilePassport = createServerFn({ method: "POST" })
     }
 
     // 3) Verify the on-chain record matches what was frozen, then persist.
-    if (minted.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase()) {
+    // A matching event is never sufficient on its own: state, tokenURI, the transaction target
+    // and the decoded calldata all have to agree with the frozen record.
+    const { decodeFunctionData } = await import("viem");
+
+    const chainRecord = await client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "passport", args: [minted.tokenId] });
+    if (chainRecord.listingId.toLowerCase() !== listingKey.toLowerCase()) {
+      throw new Error("The on-chain passport belongs to a different listing key. Nothing was saved.");
+    }
+    if (chainRecord.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase()) {
       throw new Error("On-chain metadata fingerprint does not match the frozen metadata. Nothing was saved.");
     }
-    if (minted.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase()) {
+    if (chainRecord.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase()) {
       throw new Error("On-chain terms fingerprint does not match. Nothing was saved.");
     }
+    if (minted.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase() || minted.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase()) {
+      throw new Error("The mint event fingerprints do not match the frozen metadata. Nothing was saved.");
+    }
+
+    const onChainUri = await client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "tokenURI", args: [minted.tokenId] });
+    if (onChainUri !== passport.metadata_uri) {
+      throw new Error("The on-chain tokenURI is not the frozen metadata URI. Nothing was saved.");
+    }
+
     const onChainOwner = await client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "ownerOf", args: [minted.tokenId] });
     if (getAddress(onChainOwner) !== getAddress(minted.owner)) throw new Error("Passport owner could not be confirmed on-chain. Nothing was saved.");
+    // The passport must be held by a wallet this account has proven it controls.
+    const { data: walletRows } = await db.from("wallets").select("address").eq("user_id", context.userId);
+    const linkedWallets = (walletRows ?? []).map((w) => w.address.toLowerCase());
+    if (!linkedWallets.includes(onChainOwner.toLowerCase())) {
+      throw new Error(`The passport is owned by ${onChainOwner}, which is not a wallet linked to this account. Nothing was saved.`);
+    }
+
+    // Transaction-level verification: right sender, right contract, right decoded call.
+    if (minted.txHash && isTxHash(minted.txHash)) {
+      const tx = await client.getTransaction({ hash: minted.txHash as `0x${string}` });
+      if (!tx.to || getAddress(tx.to) !== registry) {
+        throw new Error("The transaction was not sent to the verified registry contract. Nothing was saved.");
+      }
+      if (getAddress(tx.from) !== getAddress(onChainOwner)) {
+        throw new Error("The transaction sender is not the passport owner. Nothing was saved.");
+      }
+      const decodedCall = decodeFunctionData({ abi: assetRegistryAbi, data: tx.input });
+      if (decodedCall.functionName !== "mintPassport") {
+        throw new Error(`The transaction called ${decodedCall.functionName}, not mintPassport. Nothing was saved.`);
+      }
+      const [voucherArg, uriArg] = decodedCall.args as unknown as [
+        { seller: string; listingId: string; metadataHash: string; termsHash: string },
+        string,
+      ];
+      if (
+        voucherArg.listingId.toLowerCase() !== listingKey.toLowerCase() ||
+        voucherArg.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase() ||
+        voucherArg.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase() ||
+        getAddress(voucherArg.seller) !== getAddress(onChainOwner) ||
+        uriArg !== passport.metadata_uri
+      ) {
+        throw new Error("The transaction calldata does not match the frozen passport. Nothing was saved.");
+      }
+    }
+
 
     const { data: confirmed, error } = await db
       .from("item_passports")
@@ -847,12 +902,32 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
         const { data: pending } = await db.from("companion_tokens").update({ last_reconciled_at: now }).eq("id", token.id).select("*").single();
         return { outcome: "pending" as const, token: pending, message: "The deployment has not been mined yet and no token exists for this passport." };
       }
-      const [creator, totalSupply] = await Promise.all([
-        client.readContract({ address: getAddress(onChainToken), abi: companionTokenAbi, functionName: "creator" }),
-        client.readContract({ address: getAddress(onChainToken), abi: companionTokenAbi, functionName: "totalSupply" }),
-      ]);
-      const creatorBalance = await client.readContract({ address: getAddress(onChainToken), abi: companionTokenAbi, functionName: "balanceOf", args: [getAddress(creator)] });
-      created = { token: onChainToken, creator, totalSupply, creatorAllocation: creatorBalance, txHash: null, blockNumber: null };
+      // Recovery after a lost hash. Allocations are read from the immutable creation event —
+      // never from current balances, which the creator may already have transferred away.
+      const { parseAbiItem } = await import("viem");
+      const logs = await client.getLogs({
+        address: factory,
+        event: parseAbiItem(
+          "event CompanionTokenCreated(uint256 indexed passportTokenId, address indexed token, address indexed creator, string name, string symbol, uint256 totalSupply, uint256 creatorAllocation)",
+        ),
+        args: { passportTokenId },
+        fromBlock: 0n,
+        toBlock: "latest",
+      });
+      const hit = logs.find((l) => getAddress(l.args.token as string) === getAddress(onChainToken));
+      if (!hit) {
+        throw new Error(
+          "A token exists for this passport but its creation event could not be read from the chain, so its allocations cannot be verified. Nothing was saved.",
+        );
+      }
+      created = {
+        token: onChainToken,
+        creator: hit.args.creator as string,
+        totalSupply: hit.args.totalSupply as bigint,
+        creatorAllocation: hit.args.creatorAllocation as bigint,
+        txHash: hit.transactionHash,
+        blockNumber: hit.blockNumber,
+      };
     }
 
     const tokenAddress = getAddress(created.token);
@@ -864,9 +939,9 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
       throw new Error("The deployed bytecode is not a minimal clone of the verified token implementation. Nothing was saved.");
     }
 
-    const [totalSupply, creatorBalance, pairedTokenId, pairedOnRegistry, tokenFactory, tokenRegistry, passportForToken] = await Promise.all([
+    const [totalSupply, onChainCreator, pairedTokenId, pairedOnRegistry, tokenFactory, tokenRegistry, passportForToken] = await Promise.all([
       client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "totalSupply" }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "balanceOf", args: [getAddress(created.creator)] }),
+      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "creator" }),
       client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "passportTokenId" }),
       client.readContract({ address: getAddress(config.registry), abi: assetRegistryAbi, functionName: "companionTokenOf", args: [passportTokenId] }),
       client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "factory" }),
@@ -874,14 +949,55 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
       client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "passportForToken", args: [tokenAddress] }),
     ]);
 
-    if (totalSupply !== BigInt(String(token.total_supply))) throw new Error("On-chain total supply does not match what you submitted. Nothing was saved.");
-    if (creatorBalance !== BigInt(String(token.creator_allocation))) throw new Error("On-chain creator allocation does not match what you submitted. Nothing was saved.");
+    const submittedSupply = BigInt(String(token.total_supply));
+    const submittedAllocation = BigInt(String(token.creator_allocation));
+    if (totalSupply !== submittedSupply) throw new Error("On-chain total supply does not match what you submitted. Nothing was saved.");
+    // Allocations come from the creation event, not from live balances: tokens may legitimately
+    // have moved between the deployment and this reconciliation.
+    if (created.totalSupply !== submittedSupply || created.creatorAllocation !== submittedAllocation) {
+      throw new Error("The minted allocations do not match what you submitted. Nothing was saved.");
+    }
+    if (created.creatorAllocation > created.totalSupply) throw new Error("The creator allocation exceeds the total supply. Nothing was saved.");
+    if (getAddress(onChainCreator) !== getAddress(created.creator)) throw new Error("The token's recorded creator does not match its creation event. Nothing was saved.");
     if (getAddress(created.creator) !== getAddress(token.wallet_address)) throw new Error("The token creator is not the submitting wallet. Nothing was saved.");
     if (pairedTokenId !== passportTokenId || passportForToken !== passportTokenId) throw new Error("The token is not bound to this passport. Nothing was saved.");
     if (getAddress(pairedOnRegistry) !== tokenAddress) throw new Error("The registry is not paired with this token. Nothing was saved.");
     if (getAddress(tokenFactory) !== factory || getAddress(tokenRegistry) !== getAddress(config.registry)) {
       throw new Error("The token does not point back at the verified factory and registry. Nothing was saved.");
     }
+
+    // The passport must still be held by the creator, and the transaction itself must be the
+    // expected call to the verified factory from that same wallet.
+    const passportOwner = await client.readContract({
+      address: getAddress(config.registry),
+      abi: assetRegistryAbi,
+      functionName: "ownerOf",
+      args: [passportTokenId],
+    });
+    if (getAddress(passportOwner) !== getAddress(created.creator)) {
+      throw new Error("The passport is not owned by the token creator. Nothing was saved.");
+    }
+
+    const creationHash = created.txHash ?? token.tx_hash;
+    if (creationHash && isTxHash(creationHash)) {
+      const { decodeFunctionData } = await import("viem");
+      const tx = await client.getTransaction({ hash: creationHash as `0x${string}` });
+      if (!tx.to || getAddress(tx.to) !== factory) {
+        throw new Error("The transaction was not sent to the verified token factory. Nothing was saved.");
+      }
+      if (getAddress(tx.from) !== getAddress(created.creator)) {
+        throw new Error("The transaction sender is not the token creator. Nothing was saved.");
+      }
+      const decodedCall = decodeFunctionData({ abi: tokenFactoryAbi, data: tx.input });
+      if (decodedCall.functionName !== "createCompanionToken") {
+        throw new Error(`The transaction called ${decodedCall.functionName}, not createCompanionToken. Nothing was saved.`);
+      }
+      const [callPassportId, , , callSupply, callAllocation] = decodedCall.args as unknown as [bigint, string, string, bigint, bigint];
+      if (callPassportId !== passportTokenId || callSupply !== submittedSupply || callAllocation !== submittedAllocation) {
+        throw new Error("The transaction calldata does not match the token you configured. Nothing was saved.");
+      }
+    }
+
 
     const { data: confirmed, error } = await db
       .from("companion_tokens")

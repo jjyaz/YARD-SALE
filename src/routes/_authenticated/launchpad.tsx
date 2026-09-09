@@ -40,12 +40,15 @@ import {
   resetStalledToken,
 } from "@/lib/launchpad.functions";
 import {
+  prepareLiquidityLock,
   prepareLiquidityStep,
   previewLiquidity,
   reconcileLiquidity,
+  recordLiquidityLock,
   recordLiquidityStep,
   resetLiquidity,
   startLiquidity,
+  verifyLiquidityLock,
   type LiquidityStep,
 } from "@/lib/liquidity.functions";
 
@@ -167,7 +170,12 @@ function Launchpad() {
   const recordLp = useServerFn(recordLiquidityStep);
   const verifyLp = useServerFn(reconcileLiquidity);
   const resetLp = useServerFn(resetLiquidity);
+  const prepareLock = useServerFn(prepareLiquidityLock);
+  const recordLock = useServerFn(recordLiquidityLock);
+  const verifyLock = useServerFn(verifyLiquidityLock);
 
+  const [lockDays, setLockDays] = useState("180");
+  const [lockPermanent, setLockPermanent] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [account, setAccount] = useState<string | null>(null);
@@ -442,7 +450,16 @@ function Launchpad() {
     await run("lp-start", async () => {
       if (!lpRisks.every(Boolean)) throw new Error("Accept every liquidity risk statement first.");
       const wallet = await ensureWallet();
-      await startLp({ data: { listingId: selected.listing.id, wallet, ...lpInput(), risksAccepted: true } });
+      await startLp({
+        data: {
+          listingId: selected.listing.id,
+          wallet,
+          ...lpInput(),
+          risksAccepted: true,
+          // Confirms the live pool price the preview showed; the server voids the plan if it moved.
+          acknowledgedPoolPriceX96: lpPreview.existingPool?.sqrtPriceX96 ?? null,
+        },
+      });
       setLpPreview(null);
       toast.success("Liquidity plan saved. Continue to sign each step.");
     });
@@ -496,6 +513,36 @@ function Launchpad() {
     await run("lp-reset", async () => {
       await resetLp({ data: { listingId: selected.listing.id } });
       toast.success("The liquidity plan was cleared. Any approvals already on-chain remain in your wallet.");
+    });
+  }
+
+  /** Transfers the position NFT into the locker, then confirms the lock from on-chain state only. */
+  async function onLockLiquidity() {
+    if (!selected) return;
+    await run("lp-lock", async () => {
+      const wallet = await ensureWallet();
+      const days = Number.parseInt(lockDays, 10);
+      const prep = await prepareLock({ data: { listingId: selected.listing.id, lockDays: days, permanent: lockPermanent } });
+      const hash = await sendTransaction({ from: wallet, to: prep.to, data: prep.data });
+      await recordLock({ data: { listingId: selected.listing.id, txHash: hash } });
+      toast.message("Lock transaction submitted. Waiting for the receipt…");
+      const result = await verifyLock({ data: { listingId: selected.listing.id } });
+      if (result.outcome === "locked") toast.success(result.message);
+      else if (result.outcome === "failed") toast.error(result.message);
+      else toast.message(result.message);
+      await refresh();
+    });
+  }
+
+  /** Re-checks a lock transaction that was submitted before a refresh. */
+  async function onVerifyLock() {
+    if (!selected) return;
+    await run("lp-lock-verify", async () => {
+      const result = await verifyLock({ data: { listingId: selected.listing.id } });
+      if (result.outcome === "locked") toast.success(result.message);
+      else if (result.outcome === "failed") toast.error(result.message);
+      else toast.message(result.message);
+      await refresh();
     });
   }
 
@@ -958,7 +1005,11 @@ function Launchpad() {
                   ) : liquidity?.status === "confirmed" ? (
                     <div className="space-y-1">
                       <Field label="Pool" value={liquidity.pool_address ?? "—"} />
-                      <Field label="Position NFT" value={`#${liquidity.position_token_id} (in your wallet)`} mono={false} />
+                      <Field
+                        label="Position NFT"
+                        value={`#${liquidity.position_token_id} (${liquidity.lock_verified_at ? "held by the locker" : "in your wallet"})`}
+                        mono={false}
+                      />
                       <Field label="Liquidity" value={liquidity.liquidity ?? "—"} />
                       <Field label="Fee tier" value={`${liquidity.fee_tier / 10_000}%`} mono={false} />
                       <Field label="Range" value={`Full range (ticks ${liquidity.tick_lower} to ${liquidity.tick_upper})`} mono={false} />
@@ -967,9 +1018,59 @@ function Launchpad() {
                         {liquidity.mint_tx_hash ? <ExplorerLink href={explorerTxUrl(liquidity.chain_id, liquidity.mint_tx_hash)}>Position mint transaction</ExplorerLink> : null}
                         {liquidity.pool_tx_hash ? <ExplorerLink href={explorerTxUrl(liquidity.chain_id, liquidity.pool_tx_hash)}>Pool creation transaction</ExplorerLink> : null}
                       </div>
-                      <p className="pt-1 text-muted-foreground">
-                        Liquidity is not locked. The position NFT stays in your wallet; removing it is entirely up to you and visible to everyone.
-                      </p>
+                      {liquidity.lock_verified_at ? (
+                        <div className="space-y-1 pt-2">
+                          <Field label="Locker contract" value={liquidity.locker_address ?? "—"} />
+                          <Field
+                            label="Unlocks"
+                            value={liquidity.lock_permanent ? "Never — this lock is permanent" : new Date(liquidity.lock_unlock_at!).toUTCString()}
+                            mono={false}
+                          />
+                          <div className="flex flex-wrap gap-4 pt-1">
+                            {liquidity.locker_address ? (
+                              <ExplorerLink href={explorerAddressUrl(liquidity.chain_id, liquidity.locker_address)}>Locker on the explorer</ExplorerLink>
+                            ) : null}
+                            {liquidity.lock_tx_hash ? <ExplorerLink href={explorerTxUrl(liquidity.chain_id, liquidity.lock_tx_hash)}>Lock transaction</ExplorerLink> : null}
+                          </div>
+                          <p className="pt-1 text-muted-foreground">
+                            Verified on-chain: the locker contract owns this position NFT. Only your wallet can withdraw it, and only after the unlock date.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 pt-2">
+                          <p className="text-muted-foreground">
+                            Liquidity is <strong>not locked</strong>. The position NFT is in your wallet and you can remove the liquidity at any time. You can
+                            lock it in the YARD SALE locker for at least 180 days, or permanently.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <label className="flex items-center gap-2">
+                              <input type="checkbox" checked={lockPermanent} onChange={(e) => setLockPermanent(e.target.checked)} />
+                              Lock permanently (never withdrawable)
+                            </label>
+                            {!lockPermanent ? (
+                              <label className="flex items-center gap-2">
+                                Days
+                                <input
+                                  className="w-24 rounded-md border bg-background px-2 py-1"
+                                  value={lockDays}
+                                  inputMode="numeric"
+                                  onChange={(e) => setLockDays(e.target.value)}
+                                />
+                              </label>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button size="sm" onClick={onLockLiquidity} disabled={busy !== null}>
+                              {lockPermanent ? "Lock permanently" : "Lock the position"}
+                            </Button>
+                            {liquidity.lock_tx_hash ? (
+                              <Button size="sm" variant="outline" onClick={onVerifyLock} disabled={busy !== null}>
+                                Check the pending lock transaction
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : liquidity ? (
                     <>

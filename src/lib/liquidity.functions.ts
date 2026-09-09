@@ -5,8 +5,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import { isHexAddress } from "@/config/env";
 import { companionTokenAbi } from "@/lib/abi";
-import { nonfungiblePositionManagerAbi, uniswapV3FactoryAbi, uniswapV3PoolAbi, weth9Abi } from "@/lib/uniswap-abi";
-import { buildLiquidityPlan, parseFixed, priceFromSqrtPriceX96 } from "@/lib/uniswap-math";
+import { liquidityLockerAbi, nonfungiblePositionManagerAbi, uniswapV3FactoryAbi, uniswapV3PoolAbi, weth9Abi } from "@/lib/uniswap-abi";
+import { buildLiquidityPlan, parseFixed, priceDeviationBps, priceFromSqrtPriceX96, requireFreshQuote } from "@/lib/uniswap-math";
 
 type LiquidityUpdate = Database["public"]["Tables"]["liquidity_positions"]["Update"];
 type IncreaseLiquidityArgs = { tokenId: bigint; liquidity: bigint; amount0: bigint; amount1: bigint };
@@ -58,6 +58,31 @@ function isTxHash(value: string): value is `0x${string}` {
 }
 
 const ZERO = "0x0000000000000000000000000000000000000000";
+
+/**
+ * Reads the live pool for a pair, if one exists. An initialised pool means the seller's chosen
+ * ratio does NOT set the price, so any quote derived from it is stale until re-confirmed.
+ */
+export async function livePoolState(
+  client: Awaited<ReturnType<typeof import("@/lib/launchpad.server")["rpcClient"]>>,
+  factory: string,
+  token0: string,
+  token1: string,
+  feeTier: number,
+) {
+  const { getAddress } = await import("viem");
+  const { uniswapV3FactoryAbi, uniswapV3PoolAbi } = await import("@/lib/uniswap-abi");
+  const pool = await client.readContract({
+    address: getAddress(factory),
+    abi: uniswapV3FactoryAbi,
+    functionName: "getPool",
+    args: [getAddress(token0), getAddress(token1), feeTier],
+  });
+  if (pool === ZERO) return { address: null, initialized: false, sqrtPriceX96: null as bigint | null };
+  const slot0 = await client.readContract({ address: getAddress(pool), abi: uniswapV3PoolAbi, functionName: "slot0" });
+  return { address: getAddress(pool), initialized: slot0[0] !== 0n, sqrtPriceX96: slot0[0] === 0n ? null : slot0[0] };
+}
+
 
 async function loadVerifiedToken(db: Awaited<ReturnType<typeof admin>>, userId: string, listingId: string) {
   const { data: token } = await db.from("companion_tokens").select("*").eq("listing_id", listingId).eq("user_id", userId).maybeSingle();
@@ -121,7 +146,13 @@ export const previewLiquidity = createServerFn({ method: "POST" })
       client.getGasPrice(),
     ]);
 
-    let existingPool: { address: string; initialized: boolean; priceToken1PerToken0: string | null; liquidity: string } | null = null;
+    let existingPool: {
+      address: string;
+      initialized: boolean;
+      priceToken1PerToken0: string | null;
+      sqrtPriceX96: string | null;
+      liquidity: string;
+    } | null = null;
     if (poolAddress !== ZERO) {
       const [slot0, liquidity] = await Promise.all([
         client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "slot0" }),
@@ -131,6 +162,7 @@ export const previewLiquidity = createServerFn({ method: "POST" })
         address: poolAddress,
         initialized: slot0[0] !== 0n,
         priceToken1PerToken0: slot0[0] !== 0n ? priceFromSqrtPriceX96(slot0[0]) : null,
+        sqrtPriceX96: slot0[0] !== 0n ? slot0[0].toString() : null,
         liquidity: liquidity.toString(),
       };
     }
@@ -231,12 +263,26 @@ export const previewLiquidity = createServerFn({ method: "POST" })
 
 export const startLiquidity = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { listingId: string; wallet: string; tokenAmount: string; ethAmount: string; slippageBps: number; risksAccepted: boolean }) => {
-    if (!isHexAddress(input.wallet)) throw new Error("Wallet is not a valid address.");
-    if (!input.risksAccepted) throw new Error("You must accept every liquidity risk statement.");
-    if (!Number.isInteger(input.slippageBps) || input.slippageBps < 10 || input.slippageBps > 2000) throw new Error("Slippage must be between 0.1% and 20%.");
-    return input;
-  })
+  .inputValidator(
+    (input: {
+      listingId: string;
+      wallet: string;
+      tokenAmount: string;
+      ethAmount: string;
+      slippageBps: number;
+      risksAccepted: boolean;
+      /** Live pool sqrtPriceX96 the seller explicitly re-confirmed, when a pool already exists. */
+      acknowledgedPoolPriceX96?: string | null;
+    }) => {
+      if (!isHexAddress(input.wallet)) throw new Error("Wallet is not a valid address.");
+      if (!input.risksAccepted) throw new Error("You must accept every liquidity risk statement.");
+      if (!Number.isInteger(input.slippageBps) || input.slippageBps < 10 || input.slippageBps > 2000) throw new Error("Slippage must be between 0.1% and 20%.");
+      if (input.acknowledgedPoolPriceX96 != null && !/^\d+$/.test(input.acknowledgedPoolPriceX96)) {
+        throw new Error("The acknowledged pool price is not a valid value.");
+      }
+      return input;
+    },
+  )
   .handler(async ({ data, context }) => {
     const { getAddress } = await import("viem");
     const db = await admin();
@@ -268,6 +314,26 @@ export const startLiquidity = createServerFn({ method: "POST" })
       tickSpacing: infra.tickSpacing,
     });
 
+    // A pool that already exists sets the price — the seller's ratio does not. The quote is only
+    // valid against the live price they were shown and explicitly re-confirmed.
+    const { client } = await requireInfra();
+    const live = await livePoolState(client, infra.factory, plan.token0, plan.token1, infra.feeTier);
+    if (live.initialized && live.sqrtPriceX96) {
+      const acknowledged = data.acknowledgedPoolPriceX96 ? BigInt(data.acknowledgedPoolPriceX96) : null;
+      if (!acknowledged) {
+        throw new Error(
+          `A 0.3% pool already exists at ${live.address} and is trading at sqrtPriceX96 ${live.sqrtPriceX96.toString()}. ` +
+            `Your opening ratio will NOT set the price. Review the live price and confirm it before continuing.`,
+        );
+      }
+      if (priceDeviationBps(acknowledged, live.sqrtPriceX96) > data.slippageBps) {
+        throw new Error(
+          `The pool price moved since you were quoted (confirmed ${acknowledged.toString()}, live ${live.sqrtPriceX96.toString()}). ` +
+            `The quote is void — review the new price and confirm it again.`,
+        );
+      }
+    }
+
     const row = {
       token_id: token.id,
       listing_id: token.listing_id,
@@ -289,6 +355,8 @@ export const startLiquidity = createServerFn({ method: "POST" })
       amount0_min: plan.amount0Min.toString(),
       amount1_min: plan.amount1Min.toString(),
       slippage_bps: data.slippageBps,
+      acknowledged_pool_price_x96: live.initialized && live.sqrtPriceX96 ? live.sqrtPriceX96.toString() : null,
+      acknowledged_pool_price_at: live.initialized ? new Date().toISOString() : null,
       step: "wrap" as const,
       status: "in_progress" as const,
       failure_reason: null,
@@ -401,6 +469,7 @@ export const prepareLiquidityStep = createServerFn({ method: "POST" })
       if (poolAddress !== ZERO) {
         const slot0 = await client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "slot0" });
         if (slot0[0] !== 0n) {
+          requireFreshQuote(position, slot0[0]);
           await db.from("liquidity_positions").update({ step: "mint", status: "in_progress", pool_address: poolAddress.toLowerCase() }).eq("id", position.id);
           return { step, skip: true as const, description: `The pool already exists at ${poolAddress} and is initialised.` };
         }
@@ -420,6 +489,10 @@ export const prepareLiquidityStep = createServerFn({ method: "POST" })
       };
     }
     // mint
+    if (poolAddress !== ZERO) {
+      const slot0 = await client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "slot0" });
+      if (slot0[0] !== 0n) requireFreshQuote(position, slot0[0]);
+    }
     if (wethBalance < ethAmount) throw new Error(`Your WETH balance (${formatEther(wethBalance)}) dropped below the planned ${formatEther(ethAmount)}. Reset the plan.`);
     if (wethAllowance < ethAmount || tokenAllowance < tokenAmount) throw new Error("An approval is missing or was reduced. Reset the plan and run the approvals again.");
     const deadline = BigInt(Math.floor(Date.now() / 1000) + position.deadline_seconds);
@@ -597,4 +670,154 @@ export const resetLiquidity = createServerFn({ method: "POST" })
     const { error } = await db.from("liquidity_positions").delete().eq("id", position.id);
     if (error) throw new Error(error.message);
     return { reset: true };
+  });
+
+/* --------------------------------------------------------------- lock-up */
+
+const MIN_LOCK_SECONDS = 180 * 24 * 60 * 60;
+
+/** Resolves the configured locker and checks it is a real contract bound to the official position manager. */
+async function requireLocker(client: Awaited<ReturnType<typeof requireInfra>>["client"], positionManager: string) {
+  const { getAddress } = await import("viem");
+  const { publicEnv } = await import("@/config/env");
+  const configured = publicEnv.liquidityLockerAddress;
+  if (!configured || !isHexAddress(configured)) {
+    throw new Error("VITE_LIQUIDITY_LOCKER_ADDRESS is not set, so liquidity cannot be locked. Deploy YardLiquidityLocker and configure its address first.");
+  }
+  const locker = getAddress(configured);
+  const code = await client.getBytecode({ address: locker });
+  if (!code || code === "0x") throw new Error(`No contract exists at the configured locker address ${locker}.`);
+  const bound = await client.readContract({ address: locker, abi: liquidityLockerAbi, functionName: "positionManager" });
+  if (getAddress(bound) !== getAddress(positionManager)) {
+    throw new Error("The configured locker is bound to a different Uniswap position manager. Locking is disabled.");
+  }
+  const minimum = await client.readContract({ address: locker, abi: liquidityLockerAbi, functionName: "MIN_LOCK_DURATION" });
+  return { locker, minimum: Number(minimum) };
+}
+
+/** Builds the single transaction that transfers the position NFT into the locker. */
+export const prepareLiquidityLock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string; lockDays: number; permanent: boolean }) => {
+    if (!input.permanent && (!Number.isInteger(input.lockDays) || input.lockDays < 180 || input.lockDays > 3650)) {
+      throw new Error("A timed lock must be between 180 and 3650 days.");
+    }
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const { encodeAbiParameters, encodeFunctionData, getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const { data: position } = await db.from("liquidity_positions").select("*").eq("listing_id", data.listingId).eq("user_id", context.userId).maybeSingle();
+    if (!position || position.status !== "confirmed" || !position.position_token_id) {
+      throw new Error("Only a verified liquidity position can be locked.");
+    }
+    if (position.lock_verified_at) throw new Error("This position is already locked.");
+
+    const pm = getAddress(position.position_manager);
+    const wallet = getAddress(position.wallet_address);
+    const positionId = BigInt(position.position_token_id);
+    const { locker, minimum } = await requireLocker(client, pm);
+
+    const owner = await client.readContract({ address: pm, abi: nonfungiblePositionManagerAbi, functionName: "ownerOf", args: [positionId] });
+    if (getAddress(owner) !== wallet) throw new Error("Your wallet no longer owns this position NFT, so it cannot be locked.");
+
+    const duration = data.permanent ? 0 : Math.max(data.lockDays * 24 * 60 * 60, Math.max(minimum, MIN_LOCK_SECONDS));
+    const payload = encodeAbiParameters([{ type: "uint64" }, { type: "bool" }], [BigInt(duration), data.permanent]);
+    return {
+      locker,
+      positionId: positionId.toString(),
+      permanent: data.permanent,
+      lockSeconds: duration,
+      unlockAtEstimate: data.permanent ? null : new Date(Date.now() + duration * 1000).toISOString(),
+      to: pm,
+      data: encodeFunctionData({
+        abi: nonfungiblePositionManagerAbi,
+        functionName: "safeTransferFrom",
+        args: [wallet, locker, positionId, payload],
+      }),
+      description: data.permanent
+        ? `Permanently locks position #${positionId.toString()} in ${locker}. It can never be withdrawn.`
+        : `Locks position #${positionId.toString()} in ${locker} for ${Math.round(duration / 86400)} days. Only your wallet can withdraw it afterwards.`,
+    };
+  });
+
+/** Stores the submitted lock transaction hash so a refresh can recover it. */
+export const recordLiquidityLock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string; txHash: string }) => {
+    if (!isTxHash(input.txHash)) throw new Error("That is not a valid transaction hash.");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const db = await admin();
+    const { error } = await db
+      .from("liquidity_positions")
+      .update({ lock_tx_hash: data.txHash.toLowerCase() })
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    return { recorded: true };
+  });
+
+/** Confirms the lock only when the locker actually owns the position NFT on-chain. */
+export const verifyLiquidityLock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string }) => input)
+  .handler(async ({ data, context }) => {
+    const { getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const { data: position } = await db.from("liquidity_positions").select("*").eq("listing_id", data.listingId).eq("user_id", context.userId).maybeSingle();
+    if (!position || !position.position_token_id) throw new Error("There is no verified position to check.");
+    if (!position.lock_tx_hash || !isTxHash(position.lock_tx_hash)) {
+      return { outcome: "pending" as const, message: "No lock transaction has been recorded yet." };
+    }
+
+    const pm = getAddress(position.position_manager);
+    const positionId = BigInt(position.position_token_id);
+    const { locker } = await requireLocker(client, pm);
+
+    let receipt;
+    try {
+      receipt = await client.waitForTransactionReceipt({ hash: position.lock_tx_hash as `0x${string}`, timeout: 60_000, pollingInterval: 2_000 });
+    } catch {
+      return { outcome: "pending" as const, message: "The lock transaction has not been mined yet. Check again shortly." };
+    }
+    if (receipt.status !== "success") {
+      await db.from("liquidity_positions").update({ lock_tx_hash: null }).eq("id", position.id);
+      return { outcome: "failed" as const, message: "The lock transaction reverted. Nothing was saved." };
+    }
+
+    const owner = await client.readContract({ address: pm, abi: nonfungiblePositionManagerAbi, functionName: "ownerOf", args: [positionId] });
+    if (getAddress(owner) !== locker) throw new Error("The locker does not own the position NFT, so the liquidity is NOT locked. Nothing was saved.");
+    const info = await client.readContract({ address: locker, abi: liquidityLockerAbi, functionName: "lockInfo", args: [positionId] });
+    if (getAddress(info.depositor) !== getAddress(position.wallet_address)) {
+      throw new Error("The lock was recorded for a different depositor. Nothing was saved.");
+    }
+    if (info.withdrawn) throw new Error("The locker reports this position as already withdrawn. Nothing was saved.");
+    const stillLocked = await client.readContract({ address: locker, abi: liquidityLockerAbi, functionName: "isLocked", args: [positionId] });
+    if (!stillLocked) throw new Error("The locker does not report an active lock for this position. Nothing was saved.");
+
+    const permanent = info.permanent;
+    const unlockAt = permanent ? null : new Date(Number(info.unlockAt) * 1000).toISOString();
+    const { data: saved, error } = await db
+      .from("liquidity_positions")
+      .update({
+        locker_address: locker.toLowerCase(),
+        lock_permanent: permanent,
+        lock_unlock_at: unlockAt,
+        lock_verified_at: new Date().toISOString(),
+      })
+      .eq("id", position.id)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    return {
+      outcome: "locked" as const,
+      position: saved,
+      message: permanent
+        ? `Position #${positionId.toString()} is permanently locked in ${locker}.`
+        : `Position #${positionId.toString()} is locked in ${locker} until ${unlockAt}.`,
+    };
   });

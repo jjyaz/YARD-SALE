@@ -202,4 +202,71 @@ export const nonfungiblePositionManagerAbi = [
       { name: "tokenId", type: "uint256", indexed: true },
     ],
   },
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "from", type: "address" },
+      { name: "to", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "data", type: "bytes" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+/** YardLiquidityLocker — non-upgradeable Uniswap V3 position lock-up. */
+export const liquidityLockerAbi = [
+  {
+    type: "function",
+    name: "positionManager",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "MIN_LOCK_DURATION",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "isLocked",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "lockInfo",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "depositor", type: "address" },
+          { name: "lockedAt", type: "uint64" },
+          { name: "unlockAt", type: "uint64" },
+          { name: "permanent", type: "bool" },
+          { name: "withdrawn", type: "bool" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "event",
+    name: "PositionLocked",
+    inputs: [
+      { name: "positionId", type: "uint256", indexed: true },
+      { name: "depositor", type: "address", indexed: true },
+      { name: "lockedAt", type: "uint64", indexed: false },
+      { name: "unlockAt", type: "uint64", indexed: false },
+      { name: "permanent", type: "bool", indexed: false },
+    ],
+  },
 ] as const;

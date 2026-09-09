@@ -160,3 +160,28 @@ export function buildLiquidityPlan(input: LiquidityPlanInput): LiquidityPlan {
     fdvEth: formatFixed(fdvWei, 18, 6),
   };
 }
+
+/** Deviation between two sqrt prices, in basis points of the underlying price. */
+export function priceDeviationBps(a: bigint, b: bigint): number {
+  if (a <= 0n || b <= 0n) return Number.MAX_SAFE_INTEGER;
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  // price is proportional to sqrtPrice squared, so price deviation is about twice the sqrt deviation.
+  return Number(((hi - lo) * 20_000n) / lo);
+}
+
+/**
+ * Rejects a saved liquidity plan whose price reference has moved beyond the accepted slippage.
+ * The seller must review the new live price and re-confirm before approvals or minting.
+ */
+export function requireFreshQuote(
+  position: { acknowledged_pool_price_x96: string | null; sqrt_price_x96: string; slippage_bps: number },
+  livePriceX96: bigint,
+) {
+  const reference = BigInt(position.acknowledged_pool_price_x96 ?? position.sqrt_price_x96);
+  if (priceDeviationBps(reference, livePriceX96) > position.slippage_bps) {
+    throw new Error(
+      `The live pool price (sqrtPriceX96 ${livePriceX96.toString()}) has moved beyond your ${(position.slippage_bps / 100).toFixed(2)}% ` +
+        `tolerance from the price you confirmed (${reference.toString()}). This quote is void — reset the plan and confirm the new price.`,
+    );
+  }
+}

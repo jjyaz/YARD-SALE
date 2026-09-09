@@ -275,6 +275,34 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
     );
   }
 
+  // --- platform mint signer ------------------------------------------------
+  // Passports can only be minted with an EIP-712 voucher signed by an address holding
+  // SIGNER_ROLE. Without it, nobody can mint — and nobody can front-run someone else's listing.
+  try {
+    const { platformSignerAddress, signerStatus } = await import("@/lib/passport-voucher.server");
+    const status = signerStatus();
+    if (!status.configured) {
+      push(
+        "signer.configured",
+        "Platform mint signer",
+        false,
+        `${status.missing} is not set. Item Passport minting requires a platform-signed authorisation, so minting stays disabled until the signing key is configured.`,
+      );
+    } else {
+      const signer = await platformSignerAddress();
+      const signerRole = keccak256(toBytes("SIGNER_ROLE"));
+      const granted = await client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "hasRole", args: [signerRole, signer] });
+      push(
+        "signer.configured",
+        "Platform mint signer",
+        granted,
+        granted ? `${signer} holds SIGNER_ROLE on the registry` : `${signer} does not hold SIGNER_ROLE on the registry. The administrator must grant it before any passport can be minted.`,
+      );
+    }
+  } catch (error) {
+    push("signer.configured", "Platform mint signer", false, `Signer check failed: ${(error as Error).message.split("\n")[0]}`);
+  }
+
   return finish();
 }
 

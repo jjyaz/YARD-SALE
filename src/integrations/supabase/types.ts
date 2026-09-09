@@ -293,6 +293,8 @@ export type Database = {
       }
       liquidity_positions: {
         Row: {
+          acknowledged_pool_price_at: string | null
+          acknowledged_pool_price_x96: string | null
           amount0_min: string
           amount1_min: string
           chain_id: number
@@ -306,6 +308,11 @@ export type Database = {
           id: string
           liquidity: string | null
           listing_id: string
+          lock_permanent: boolean
+          lock_tx_hash: string | null
+          lock_unlock_at: string | null
+          lock_verified_at: string | null
+          locker_address: string | null
           mint_tx_hash: string | null
           pool_address: string | null
           pool_tx_hash: string | null
@@ -332,6 +339,8 @@ export type Database = {
           wrap_tx_hash: string | null
         }
         Insert: {
+          acknowledged_pool_price_at?: string | null
+          acknowledged_pool_price_x96?: string | null
           amount0_min: string
           amount1_min: string
           chain_id: number
@@ -345,6 +354,11 @@ export type Database = {
           id?: string
           liquidity?: string | null
           listing_id: string
+          lock_permanent?: boolean
+          lock_tx_hash?: string | null
+          lock_unlock_at?: string | null
+          lock_verified_at?: string | null
+          locker_address?: string | null
           mint_tx_hash?: string | null
           pool_address?: string | null
           pool_tx_hash?: string | null
@@ -371,6 +385,8 @@ export type Database = {
           wrap_tx_hash?: string | null
         }
         Update: {
+          acknowledged_pool_price_at?: string | null
+          acknowledged_pool_price_x96?: string | null
           amount0_min?: string
           amount1_min?: string
           chain_id?: number
@@ -384,6 +400,11 @@ export type Database = {
           id?: string
           liquidity?: string | null
           listing_id?: string
+          lock_permanent?: boolean
+          lock_tx_hash?: string | null
+          lock_unlock_at?: string | null
+          lock_verified_at?: string | null
+          locker_address?: string | null
           mint_tx_hash?: string | null
           pool_address?: string | null
           pool_tx_hash?: string | null
