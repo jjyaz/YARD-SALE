@@ -136,7 +136,7 @@ export function passportEligibility(listing: {
   mediaCount: number;
   hasConfirmedPassport: boolean;
   /** Whether `terms_version` resolves to a real row in `terms_versions`. Omit when unknown. */
-  termsKnown?: boolean;
+  termsKnown?: boolean | undefined;
 }): { eligible: boolean; reason: EligibilityReason } {
   if (listing.hasConfirmedPassport) return { eligible: false, reason: "already_minted" };
   if (listing.is_demo) return { eligible: false, reason: "demo_listing" };
