@@ -194,6 +194,8 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     const { requireVerifiedDeployment, pinJsonToIpfs, pinBytesToIpfs, ipfsPinningStatus } =
       await import("@/lib/launchpad.server");
     const { cidV1Raw } = await import("@/lib/ipfs");
+    const { pinListingImages, assertOnlyIpfsImages, liveVoucherBlock } =
+      await import("@/lib/passport-freeze");
     const config = await requireVerifiedDeployment();
     const db = await admin();
     const { keccak256, toBytes } = await import("viem");
@@ -223,21 +225,20 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
 
     // A mint authorisation already issued for the current metadata stays redeemable until it
     // expires. Re-freezing now would leave a live voucher for superseded metadata, so it waits.
-    if (existing?.voucher_expires_at) {
-      const expiresAt = new Date(existing.voucher_expires_at).getTime();
-      if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
-        throw new Error(
-          `A mint authorisation for the current metadata is still valid until ${new Date(expiresAt).toISOString()}. ` +
-            "Either send that mint, or wait for it to expire before freezing new metadata — otherwise the old authorisation could still mint the superseded version.",
-        );
-      }
+    const voucherBlock = liveVoucherBlock(existing);
+    if (voucherBlock.blocked) {
+      throw new Error(
+        `A mint authorisation for the current metadata is still valid until ${voucherBlock.expiresAt}. ` +
+          "Either send that mint, or wait for it to expire before freezing new metadata — otherwise the old authorisation could still mint the superseded version.",
+      );
     }
 
-    // On mainnet the token URI must be permanent: require IPFS pinning.
+    // A passport must be permanent, so a frozen record is only ever built from content-addressed
+    // media. Without pinning there is nothing immutable to point at, on any chain.
     const pinning = ipfsPinningStatus();
-    if (config.chainId === ROBINHOOD_MAINNET_ID && !pinning.configured) {
+    if (!pinning.configured) {
       throw new Error(
-        `IPFS pinning is not configured: the ${pinning.missing} secret is missing. Mainnet passports require a permanent ipfs:// metadata URI.`,
+        `IPFS pinning is not configured: the ${pinning.missing} secret is missing. A passport can only be frozen once its photos and metadata can be pinned to permanent ipfs:// content IDs.`,
       );
     }
 
@@ -278,51 +279,22 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     // Every photo is pinned individually BEFORE the metadata is built, so the JSON only ever
     // references content-addressed ipfs:// URIs. Changing or deleting the original file in
     // storage afterwards cannot alter what the passport points at.
-    const images: { url: string; sha256: string; cid?: string | null }[] = [];
-    const imageCids: { storage_path: string; cid: string | null; sha256: string; uri: string }[] =
-      [];
-    for (const item of media ?? []) {
-      if (!item.storage_path) continue;
-      const { data: file, error: downloadError } = await db.storage
-        .from(METADATA_BUCKET)
-        .download(item.storage_path);
-      if (downloadError || !file) {
-        throw new Error(
-          `Photo ${item.storage_path} could not be read from storage: ${downloadError?.message ?? "missing"}`,
-        );
-      }
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const sha256 = `0x${createHash("sha256").update(bytes).digest("hex")}`;
-      const localCid = await cidV1Raw(bytes);
-
-      let uri = item.public_url ?? item.storage_path;
-      let cid: string | null = null;
-      if (pinning.configured) {
-        const filename = item.storage_path.split("/").pop() || "photo";
-        const pinnedImage = await pinBytesToIpfs(
-          bytes,
-          filename,
-          file.type || "application/octet-stream",
-        );
-        if (!pinnedImage.pinned) {
-          throw new Error(
-            `Photo ${item.storage_path} could not be pinned to IPFS (${pinnedImage.missing} is missing). Nothing was frozen.`,
-          );
-        }
-        cid = pinnedImage.cid;
-        // pinBytesToIpfs only returns a CID it has verified against the exact bytes, either by
-        // local computation or a byte-identical gateway read-back.
-        if (pinnedImage.verifiedBy === "cid" && cid !== localCid) {
-          throw new Error(
-            `The pinning service returned ${cid} for ${item.storage_path} but those bytes hash to ${localCid}. Nothing was frozen.`,
-          );
-        }
-        uri = `ipfs://${cid}`;
-      }
-      images.push({ url: uri, sha256, cid });
-      imageCids.push({ storage_path: item.storage_path, cid, sha256, uri });
-    }
-    if (images.length === 0) throw new Error("No readable photos were found for this listing.");
+    const { images, records: imageCids } = await pinListingImages({
+      media: media ?? [],
+      download: async (path) => {
+        const { data: file, error: downloadError } = await db.storage
+          .from(METADATA_BUCKET)
+          .download(path);
+        if (downloadError || !file) return null;
+        return {
+          bytes: new Uint8Array(await file.arrayBuffer()),
+          contentType: file.type || "application/octet-stream",
+        };
+      },
+      pin: (bytes, name, contentType) => pinBytesToIpfs(bytes, name, contentType),
+      sha256: (bytes) => `0x${createHash("sha256").update(bytes).digest("hex")}`,
+      localCid: (bytes) => cidV1Raw(bytes),
+    });
 
     const now = new Date().toISOString();
     const metadata = buildPassportMetadata({
@@ -352,6 +324,8 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       attestedAt: now,
     });
 
+    assertOnlyIpfsImages(metadata);
+
     const canonical = canonicalJson(metadata);
     const canonicalBytes = new TextEncoder().encode(canonical);
     const metadataHash = keccak256(canonicalBytes);
@@ -375,9 +349,20 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
         `Metadata URL could not be created: ${signError?.message ?? "unknown error"}`,
       );
 
-    // Pin to IPFS when configured. The URI is ipfs:// only if the pin really happened.
+    // The canonical JSON itself is pinned and verified. A passport is never frozen against a
+    // mutable URL: the token URI is always ipfs://.
     const pin = await pinJsonToIpfs(canonical, `yardsale-passport-${listing.id}`);
-    const metadataUri = pin.pinned ? `ipfs://${pin.cid}` : signed.signedUrl;
+    if (!pin.pinned) {
+      throw new Error(
+        `The passport metadata could not be pinned to IPFS (${pin.missing} is missing). Nothing was frozen.`,
+      );
+    }
+    if (pin.verifiedBy === "cid" && pin.cid !== computedCid) {
+      throw new Error(
+        `The pinning service returned ${pin.cid} for the metadata but those bytes hash to ${computedCid}. Nothing was frozen.`,
+      );
+    }
+    const metadataUri = `ipfs://${pin.cid}`;
 
     const row = {
       listing_id: listing.id,
@@ -387,10 +372,10 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       wallet_address: "",
       metadata_uri: metadataUri,
       storage_url: signed.signedUrl,
-      ipfs_cid: pin.pinned ? pin.cid : computedCid,
-      metadata_cid: pin.pinned ? pin.cid : computedCid,
+      ipfs_cid: pin.cid,
+      metadata_cid: pin.cid,
       image_cids: imageCids,
-      ipfs_pinned_at: pin.pinned ? now : null,
+      ipfs_pinned_at: now,
       metadata_hash: metadataHash,
       terms_hash: termsHash,
       listing_key: listingKey,
@@ -418,8 +403,8 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     if (saveError) throw new Error(saveError.message);
     return {
       passport: saved,
-      pinned: pin.pinned,
-      pinningMissing: pin.pinned ? null : pin.missing,
+      pinned: true,
+      pinningMissing: null,
       computedCid,
     };
   });

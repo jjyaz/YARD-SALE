@@ -145,6 +145,89 @@ describe("YardSaleAssetRegistry — voucher-authorized minting", () => {
       .withArgs(base.seller.address, 7n);
   });
 
+  it("ADVERSARIAL: a superseded voucher cannot mint after the listing is re-frozen and minted", async () => {
+    const base = await deployFixture();
+    const METADATA_A = ethers.id("metadata-A");
+    const METADATA_B = ethers.id("metadata-B");
+    const URI_A = "ipfs://bafy-A/passport.json";
+    const URI_B_META = "ipfs://bafy-B/passport.json";
+
+    // Version 1 of the metadata is frozen and a voucher is issued for it (nonce = version).
+    const a = await makeVoucher({
+      registry: base.registry,
+      signer: base.platformSigner,
+      seller: base.seller.address,
+      listingId: LISTING_A,
+      uri: URI_A,
+      metadataHash: METADATA_A,
+      termsHash: TERMS_HASH,
+      nonce: 1n,
+    });
+    // The seller re-freezes; the new version gets its own nonce, so the voucher differs entirely.
+    const b = await makeVoucher({
+      registry: base.registry,
+      signer: base.platformSigner,
+      seller: base.seller.address,
+      listingId: LISTING_A,
+      uri: URI_B_META,
+      metadataHash: METADATA_B,
+      termsHash: TERMS_HASH,
+      nonce: 2n,
+    });
+
+    // Current metadata mints normally.
+    await expect(
+      base.registry.connect(base.seller).mintPassport(b.voucher, URI_B_META, b.signature),
+    )
+      .to.emit(base.registry, "PassportMinted")
+      .withArgs(1n, base.seller.address, LISTING_A, URI_B_META, METADATA_B, TERMS_HASH);
+
+    // The superseded voucher for version 1 is now dead: one passport per listing, forever.
+    await expect(
+      base.registry.connect(base.seller).mintPassport(a.voucher, URI_A, a.signature),
+    ).to.be.revertedWithCustomError(base.registry, "ListingAlreadyMinted");
+
+    // And what is stored on chain is the current metadata, not the superseded version.
+    expect(await base.registry.tokenURI(1n)).to.equal(URI_B_META);
+    expect((await base.registry.passport(1n)).metadataHash).to.equal(METADATA_B);
+  });
+
+  it("mints normally with a valid current voucher after an earlier one expired unused", async () => {
+    const base = await deployFixture();
+    const now = (await ethers.provider.getBlock("latest")).timestamp;
+    const stale = await makeVoucher({
+      registry: base.registry,
+      signer: base.platformSigner,
+      seller: base.seller.address,
+      listingId: LISTING_A,
+      uri: URI,
+      metadataHash: META_HASH,
+      termsHash: TERMS_HASH,
+      nonce: 1n,
+      expiry: BigInt(now + 120),
+    });
+    await ethers.provider.send("evm_increaseTime", [3600]);
+    await ethers.provider.send("evm_mine", []);
+    await expect(
+      base.registry.connect(base.seller).mintPassport(stale.voucher, URI, stale.signature),
+    ).to.be.revertedWithCustomError(base.registry, "VoucherExpired");
+
+    // Re-freezing after expiry issues nonce 2, which mints without any trouble.
+    const fresh = await makeVoucher({
+      registry: base.registry,
+      signer: base.platformSigner,
+      seller: base.seller.address,
+      listingId: LISTING_A,
+      uri: URI,
+      metadataHash: META_HASH,
+      termsHash: TERMS_HASH,
+      nonce: 2n,
+    });
+    await expect(
+      base.registry.connect(base.seller).mintPassport(fresh.voucher, URI, fresh.signature),
+    ).to.emit(base.registry, "PassportMinted");
+  });
+
   it("ADVERSARIAL: cross-chain and cross-contract signatures are rejected", async () => {
     const base = await deployFixture();
     await expect(mintFor(base, base.seller, { chainId: 1n })).to.be.revertedWithCustomError(
