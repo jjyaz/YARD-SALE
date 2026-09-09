@@ -10,6 +10,7 @@ import {
   canonicalJson,
   COMPANION_TOKEN_DISCLAIMER,
   passportEligibility,
+  eligibilityLabel,
   validateTokenParams,
   type PossessionAttestation,
 } from "@/lib/passport-metadata";
@@ -92,6 +93,15 @@ export const getLaunchpadState = createServerFn({ method: "POST" })
       }
     }
 
+    // A listing can only be minted if the terms version it was published under still
+    // resolves to a real row — that row's hash goes on-chain as the immutable terms hash.
+    const versions = Array.from(new Set((listings ?? []).map((l) => l.terms_version).filter((v): v is string => Boolean(v))));
+    const knownVersions = new Set<string>();
+    if (versions.length > 0) {
+      const { data: termRows } = await db.from("terms_versions").select("version").in("version", versions);
+      for (const row of termRows ?? []) knownVersions.add(row.version);
+    }
+
     const passportByListing = new Map((passports ?? []).map((p) => [p.listing_id, p]));
     const tokenByPassport = new Map((tokens ?? []).map((t) => [t.passport_id, t]));
     const liquidityByToken = new Map((liquidity ?? []).map((l) => [l.token_id, l]));
@@ -113,6 +123,7 @@ export const getLaunchpadState = createServerFn({ method: "POST" })
           terms_version: listing.terms_version,
           mediaCount: mediaCounts.get(listing.id) ?? 0,
           hasConfirmedPassport: passport?.status === "confirmed",
+          termsKnown: listing.terms_version ? knownVersions.has(listing.terms_version) : undefined,
         });
         return {
           listing,
@@ -180,8 +191,9 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       terms_version: listing.terms_version,
       mediaCount: media?.length ?? 0,
       hasConfirmedPassport: false,
+      termsKnown: listing.terms_version ? Boolean(terms) : undefined,
     });
-    if (!eligibility.eligible) throw new Error(`This listing is not eligible: ${eligibility.reason}.`);
+    if (!eligibility.eligible) throw new Error(`This listing is not eligible: ${eligibilityLabel[eligibility.reason]}.`);
     if (!terms) throw new Error(`Terms version ${listing.terms_version} was not found, so the terms hash cannot be computed.`);
 
     // The terms hash commits to the exact wording the seller accepted.
@@ -724,8 +736,10 @@ export const recordTokenSubmission = createServerFn({ method: "POST" })
       wallet_address: data.wallet.toLowerCase(),
       name: data.name.trim(),
       symbol: data.symbol.trim().toUpperCase(),
-      total_supply: data.totalSupply as unknown as number,
-      creator_allocation: data.creatorAllocation as unknown as number,
+      // Exact base-unit integers as decimal strings — never JS numbers, which lose
+      // precision above 2^53 and would make the on-chain comparison impossible.
+      total_supply: BigInt(data.totalSupply).toString(),
+      creator_allocation: BigInt(data.creatorAllocation).toString(),
       tx_hash: data.txHash,
       status: "submitted" as const,
       failure_reason: null,
