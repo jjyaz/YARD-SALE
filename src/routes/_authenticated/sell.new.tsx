@@ -276,6 +276,10 @@ function SellWizard() {
 
   async function publish() {
     if (!draft) return;
+    if (!terms) {
+      toast.error(termsError ?? "The current terms of use are still loading. Try again in a moment.");
+      return;
+    }
     setPublishing(true);
     await persist(draft, 6);
     await savePickup();
@@ -285,7 +289,7 @@ function SellWizard() {
         slug: slugify(draft.title),
         status: "published",
         published_at: new Date().toISOString(),
-        terms_version: TERMS_VERSION,
+        terms_version: terms.version,
       })
       .eq("id", draft.id);
     setPublishing(false);
