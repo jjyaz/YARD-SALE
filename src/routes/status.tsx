@@ -254,7 +254,7 @@ function StatusPage() {
                     <p className="text-sm text-muted-foreground">
                       {ipfs?.configured
                         ? `Passport metadata is pinned through ${ipfs.provider} and referenced by ipfs:// URI.`
-                        : `Set the server secret ${ipfs?.missing ?? "PINATA_JWT"} to pin passport metadata to IPFS. Without it, testnet passports reference a storage copy (hash still on-chain) and mainnet minting is blocked.`}
+                        : `Set the server secret ${ipfs?.missing ?? "PINATA_JWT"} to pin passport photos and metadata to IPFS. Until it is set, passports cannot be frozen at all: a passport only ever references permanent ipfs:// content IDs, never a storage copy.`}
                     </p>
                   </div>
                 </li>
