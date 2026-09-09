@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 import { keccak256, toBytes } from "viem";
 
 import {
+  ATTESTATION_STATEMENTS,
+  attestationComplete,
   buildPassportMetadata,
   canonicalJson,
+  COMPANION_MAX_SUPPLY,
   COMPANION_TOKEN_DISCLAIMER,
+  fromTokenUnits,
+  LIQUIDITY_RISK_STATEMENTS,
   passportEligibility,
   toTokenUnits,
+  validateTokenParams,
 } from "@/lib/passport-metadata";
 
 const base = {
@@ -114,5 +120,71 @@ describe("toTokenUnits", () => {
     expect(() => toTokenUnits("1.5")).toThrow();
     expect(() => toTokenUnits("-1")).toThrow();
     expect(() => toTokenUnits("abc")).toThrow();
+  });
+});
+
+describe("fromTokenUnits", () => {
+  it("formats whole and fractional balances", () => {
+    expect(fromTokenUnits(1000000n * 10n ** 18n)).toBe("1000000");
+    expect(fromTokenUnits("1500000000000000000")).toBe("1.5");
+    expect(fromTokenUnits(0)).toBe("0");
+  });
+});
+
+describe("possession attestation", () => {
+  const full = { possession: true, rightToSell: true, accurate: true, notProhibited: true, understandsNoRights: true };
+
+  it("requires every statement to be explicitly accepted", () => {
+    expect(ATTESTATION_STATEMENTS).toHaveLength(5);
+    expect(attestationComplete(full)).toBe(true);
+    for (const { key } of ATTESTATION_STATEMENTS) {
+      expect(attestationComplete({ ...full, [key]: false })).toBe(false);
+    }
+    const { possession: _omitted, ...missingOne } = full;
+    expect(attestationComplete(missingOne)).toBe(false);
+    expect(attestationComplete(null)).toBe(false);
+    expect(attestationComplete(undefined)).toBe(false);
+  });
+
+  it("spells out that a passport is not title and not a financial instrument", () => {
+    const text = ATTESTATION_STATEMENTS.map((s) => s.text).join(" ");
+    expect(text).toMatch(/not title/i);
+    expect(text).toMatch(/not a financial instrument/i);
+  });
+});
+
+describe("liquidity risk statements", () => {
+  it("cover pricing, loss, appraisal, permissionless trading and no lock", () => {
+    const text = LIQUIDITY_RISK_STATEMENTS.join(" ").toLowerCase();
+    expect(LIQUIDITY_RISK_STATEMENTS.length).toBeGreaterThanOrEqual(5);
+    expect(text).toContain("opening");
+    expect(text).toContain("zero");
+    expect(text).toContain("appraisal");
+    expect(text).toContain("lock");
+  });
+});
+
+describe("validateTokenParams", () => {
+  const ok = { name: "Teak Desk Token", symbol: "TEAK", totalSupply: toTokenUnits("1000000"), creatorAllocation: toTokenUnits("1000000") };
+
+  it("accepts a valid fixed-supply configuration", () => {
+    expect(validateTokenParams(ok)).toBeNull();
+    expect(validateTokenParams({ ...ok, creatorAllocation: toTokenUnits("1") })).toBeNull();
+  });
+
+  it("mirrors the on-chain MAX_SUPPLY", () => {
+    expect(COMPANION_MAX_SUPPLY).toBe(10n ** 12n * 10n ** 18n);
+    expect(validateTokenParams({ ...ok, totalSupply: COMPANION_MAX_SUPPLY, creatorAllocation: COMPANION_MAX_SUPPLY })).toBeNull();
+    expect(validateTokenParams({ ...ok, totalSupply: COMPANION_MAX_SUPPLY + 1n })).toMatch(/exceeds the contract maximum/);
+  });
+
+  it("rejects empty names/symbols, zero supply and over-allocation", () => {
+    expect(validateTokenParams({ ...ok, name: "  " })).toMatch(/name is required/);
+    expect(validateTokenParams({ ...ok, name: "x".repeat(65) })).toMatch(/64 characters/);
+    expect(validateTokenParams({ ...ok, symbol: "" })).toMatch(/symbol is required/);
+    expect(validateTokenParams({ ...ok, symbol: "TOOLONGSYMBOL12345" })).toMatch(/16 characters/);
+    expect(validateTokenParams({ ...ok, totalSupply: 0n })).toMatch(/greater than zero/);
+    expect(validateTokenParams({ ...ok, creatorAllocation: 0n })).toMatch(/allocation must be greater/);
+    expect(validateTokenParams({ ...ok, creatorAllocation: ok.totalSupply + 1n })).toMatch(/cannot exceed/);
   });
 });

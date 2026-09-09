@@ -297,7 +297,7 @@ export async function requireVerifiedDeployment() {
 /* ------------------------------------------------------------------- IPFS */
 
 export type PinResult =
-  | { pinned: true; cid: string; provider: "pinata" }
+  | { pinned: true; cid: string; provider: "pinata"; verifiedBy: "cid" | "gateway" }
   | { pinned: false; cid: null; missing: string; provider: null };
 
 export function ipfsPinningStatus(): { configured: boolean; missing: string | null; provider: string | null } {
@@ -305,13 +305,23 @@ export function ipfsPinningStatus(): { configured: boolean; missing: string | nu
   return jwt ? { configured: true, missing: null, provider: "pinata" } : { configured: false, missing: "PINATA_JWT", provider: null };
 }
 
-/** Pins canonical JSON to IPFS via Pinata when a JWT is configured. Never fakes a CID. */
+const DEFAULT_IPFS_READ_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
+
+/**
+ * Pins canonical JSON to IPFS via Pinata when a JWT is configured. Never fakes a CID.
+ * The returned CID is only trusted when it equals the locally computed CIDv1 (raw, sha2-256)
+ * or when the bytes served for that CID are byte-identical to what was pinned.
+ */
 export async function pinJsonToIpfs(canonical: string, name: string): Promise<PinResult> {
   const jwt = process.env["PINATA_JWT"];
   if (!jwt) return { pinned: false, cid: null, missing: "PINATA_JWT", provider: null };
 
+  const bytes = new TextEncoder().encode(canonical);
+  const { cidV1Raw } = await import("@/lib/ipfs");
+  const expectedCid = await cidV1Raw(bytes);
+
   const form = new FormData();
-  form.append("file", new Blob([canonical], { type: "application/json" }), `${name}.json`);
+  form.append("file", new Blob([bytes], { type: "application/json" }), `${name}.json`);
   form.append("pinataMetadata", JSON.stringify({ name }));
   form.append("pinataOptions", JSON.stringify({ cidVersion: 1 }));
 
@@ -325,8 +335,31 @@ export async function pinJsonToIpfs(canonical: string, name: string): Promise<Pi
     throw new Error(`IPFS pinning failed (${response.status}): ${text.slice(0, 200) || response.statusText}`);
   }
   const json = (await response.json()) as { IpfsHash?: string };
-  if (!json.IpfsHash) throw new Error("IPFS pinning service did not return a content ID.");
-  return { pinned: true, cid: json.IpfsHash, provider: "pinata" };
+  const cid = json.IpfsHash?.trim();
+  if (!cid) throw new Error("IPFS pinning service did not return a content ID.");
+  if (cid === expectedCid) return { pinned: true, cid, provider: "pinata", verifiedBy: "cid" };
+
+  // Different chunking/codec (e.g. dag-pb wrapped) can legitimately produce another CID.
+  // Only accept it after reading the bytes back and confirming they are identical.
+  const gateway = (process.env["IPFS_READ_GATEWAY"] ?? DEFAULT_IPFS_READ_GATEWAY).replace(/\/?$/, "/");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const read = await fetch(`${gateway}${cid}`, { signal: controller.signal, headers: { Accept: "application/json, */*" } });
+    if (!read.ok) throw new Error(`gateway responded ${read.status}`);
+    const served = new Uint8Array(await read.arrayBuffer());
+    const identical = served.length === bytes.length && served.every((b, i) => b === bytes[i]);
+    if (!identical) throw new Error("served bytes differ from the pinned metadata");
+    return { pinned: true, cid, provider: "pinata", verifiedBy: "gateway" };
+  } catch (error) {
+    throw new Error(
+      `IPFS pin could not be verified: Pinata returned ${cid} but the locally computed CID is ${expectedCid} and read-back failed (${
+        error instanceof Error ? error.message : String(error)
+      }). The passport was not frozen with an unverified URI.`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /* ---------------------------------------------------------------- Uniswap */
