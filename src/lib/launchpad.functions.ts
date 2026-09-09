@@ -92,6 +92,15 @@ export const getLaunchpadState = createServerFn({ method: "POST" })
       }
     }
 
+    // A listing can only be minted if the terms version it was published under still
+    // resolves to a real row — that row's hash goes on-chain as the immutable terms hash.
+    const versions = Array.from(new Set((listings ?? []).map((l) => l.terms_version).filter((v): v is string => Boolean(v))));
+    const knownVersions = new Set<string>();
+    if (versions.length > 0) {
+      const { data: termRows } = await db.from("terms_versions").select("version").in("version", versions);
+      for (const row of termRows ?? []) knownVersions.add(row.version);
+    }
+
     const passportByListing = new Map((passports ?? []).map((p) => [p.listing_id, p]));
     const tokenByPassport = new Map((tokens ?? []).map((t) => [t.passport_id, t]));
     const liquidityByToken = new Map((liquidity ?? []).map((l) => [l.token_id, l]));
@@ -113,6 +122,7 @@ export const getLaunchpadState = createServerFn({ method: "POST" })
           terms_version: listing.terms_version,
           mediaCount: mediaCounts.get(listing.id) ?? 0,
           hasConfirmedPassport: passport?.status === "confirmed",
+          termsKnown: listing.terms_version ? knownVersions.has(listing.terms_version) : undefined,
         });
         return {
           listing,
