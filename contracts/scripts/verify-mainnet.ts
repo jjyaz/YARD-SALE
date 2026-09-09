@@ -29,7 +29,7 @@ async function main() {
   if (!record || record.status !== "deployed") {
     throw new Error(`deployments/${MAINNET_CHAIN_ID}.json has no live deployment to verify.`);
   }
-  const { implementation, registry, factory } = record.contracts;
+  const { implementation, registry, factory, locker } = record.contracts;
   if (!implementation || !registry || !factory) throw new Error("Deployment record is incomplete.");
 
   await verify(
@@ -45,6 +45,14 @@ async function main() {
     "contracts/YardSaleAssetRegistry.sol:YardSaleAssetRegistry",
   );
   await verify("YardTokenFactory", factory.address, factory.constructorArgs, "contracts/YardTokenFactory.sol:YardTokenFactory");
+  if (locker) {
+    await verify(
+      "YardLiquidityLocker",
+      locker.address,
+      locker.constructorArgs,
+      "contracts/YardLiquidityLocker.sol:YardLiquidityLocker",
+    );
+  }
   console.log("Done.");
 }
 

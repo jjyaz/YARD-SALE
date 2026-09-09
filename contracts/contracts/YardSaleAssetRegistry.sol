@@ -5,25 +5,39 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
  * @title YardSaleAssetRegistry
  * @notice ERC-721 "Item Passport" registry for physical yard sale items.
  *
+ *  - A passport can ONLY be minted with an EIP-712 mint voucher signed by an address holding
+ *    SIGNER_ROLE (the platform signer). There is no unrestricted self-mint path, so an attacker
+ *    cannot front-run a seller's public listing id and permanently block their listing.
+ *  - The voucher binds seller, listing id, metadata URI hash, metadata hash, terms hash, nonce and
+ *    expiry. The EIP-712 domain binds chain id and this contract address, so a signature is
+ *    useless on another chain or another registry.
  *  - Exactly one passport may ever be minted for a given off-chain listing id.
  *  - Metadata URI, metadata hash and terms hash are immutable after mint.
- *  - Each passport carries a lifecycle status.
- *  - Each passport may be permanently paired with at most one companion token,
- *    and only by an address holding PAIRING_ROLE (the YardTokenFactory).
+ *  - Lifecycle status follows an explicit forward-only transition matrix.
+ *  - Each passport may be permanently paired with at most one companion token, and only by an
+ *    address holding PAIRING_ROLE (the YardTokenFactory).
  *
- * A passport is a record of a listing. It is not a claim on the physical item,
- * and it carries no financial rights of any kind.
+ * A passport is a record of a listing. It is not a claim on the physical item, and it carries no
+ * financial rights of any kind.
  */
-contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable, ReentrancyGuard {
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable, ReentrancyGuard, EIP712 {
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     bytes32 public constant STATUS_ROLE = keccak256("STATUS_ROLE");
     bytes32 public constant PAIRING_ROLE = keccak256("PAIRING_ROLE");
+    /// @notice Holder(s) of this role sign mint vouchers. It is NOT a mint permission by itself.
+    bytes32 public constant SIGNER_ROLE = keccak256("SIGNER_ROLE");
+
+    bytes32 public constant MINT_VOUCHER_TYPEHASH =
+        keccak256(
+            "MintVoucher(address seller,bytes32 listingId,bytes32 metadataURIHash,bytes32 metadataHash,bytes32 termsHash,uint256 nonce,uint256 expiry)"
+        );
 
     enum PassportStatus {
         Listed,
@@ -42,11 +56,23 @@ contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable, ReentrancyGua
         uint64 mintedAt;
     }
 
+    struct MintVoucher {
+        address seller;
+        bytes32 listingId;
+        bytes32 metadataURIHash;
+        bytes32 metadataHash;
+        bytes32 termsHash;
+        uint256 nonce;
+        uint256 expiry;
+    }
+
     uint256 private _nextTokenId = 1;
 
     mapping(uint256 => Passport) private _passports;
     mapping(uint256 => string) private _tokenURIs;
     mapping(bytes32 => uint256) public tokenIdForListing;
+    /// @notice seller => nonce => consumed. A voucher can be redeemed at most once.
+    mapping(address => mapping(uint256 => bool)) public voucherUsed;
 
     error ListingAlreadyMinted(bytes32 listingId);
     error UnknownPassport(uint256 tokenId);
@@ -57,6 +83,12 @@ contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable, ReentrancyGua
     error NotAContract(address account);
     error CompanionTokenAlreadySet(uint256 tokenId, address existing);
     error StatusUnchanged(uint256 tokenId);
+    error InvalidStatusTransition(uint256 tokenId, PassportStatus from, PassportStatus to);
+    error VoucherExpired(uint256 expiry, uint256 nowTs);
+    error VoucherAlreadyUsed(address seller, uint256 nonce);
+    error VoucherSellerMismatch(address seller, address caller);
+    error VoucherURIMismatch();
+    error InvalidVoucherSignature(address recovered);
 
     event PassportMinted(
         uint256 indexed tokenId,
@@ -66,56 +98,125 @@ contract YardSaleAssetRegistry is ERC721, AccessControl, Pausable, ReentrancyGua
         bytes32 metadataHash,
         bytes32 termsHash
     );
+    event MintVoucherRedeemed(address indexed seller, uint256 indexed nonce, uint256 indexed tokenId, address signer);
     event PassportStatusChanged(uint256 indexed tokenId, PassportStatus previousStatus, PassportStatus newStatus);
     event CompanionTokenPaired(uint256 indexed tokenId, address indexed companionToken);
 
-    constructor(address admin) ERC721("YARD SALE Item Passport", "YARDP") {
+    constructor(address admin)
+        ERC721("YARD SALE Item Passport", "YARDP")
+        EIP712("YARD SALE Item Passport", "1")
+    {
         if (admin == address(0)) revert ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(MINTER_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(STATUS_ROLE, admin);
+        _grantRole(SIGNER_ROLE, admin);
     }
 
-    /// @notice Mints the single Item Passport allowed for `listingId`.
-    /// @dev Sellers mint to themselves; MINTER_ROLE may mint on behalf of others.
-    ///      nonReentrant closes the ERC721 receiver callback re-entry path.
-    function mintPassport(
-        address to,
-        bytes32 listingId,
-        string calldata metadataURI,
-        bytes32 metadataHash,
-        bytes32 termsHash
-    ) external whenNotPaused nonReentrant returns (uint256 tokenId) {
-        if (to == address(0)) revert ZeroAddress();
-        if (listingId == bytes32(0)) revert EmptyListingId();
+    /// @notice EIP-712 digest for a voucher, exposed so the platform signer and clients agree byte-for-byte.
+    function hashVoucher(MintVoucher calldata voucher) public view returns (bytes32) {
+        return
+            _hashTypedDataV4(
+                keccak256(
+                    abi.encode(
+                        MINT_VOUCHER_TYPEHASH,
+                        voucher.seller,
+                        voucher.listingId,
+                        voucher.metadataURIHash,
+                        voucher.metadataHash,
+                        voucher.termsHash,
+                        voucher.nonce,
+                        voucher.expiry
+                    )
+                )
+            );
+    }
+
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
+    /**
+     * @notice Mints the single Item Passport allowed for `voucher.listingId`.
+     * @dev The caller MUST be `voucher.seller`. There is no other mint path.
+     *      nonReentrant closes the ERC721 receiver callback re-entry path.
+     */
+    function mintPassport(MintVoucher calldata voucher, string calldata metadataURI, bytes calldata signature)
+        external
+        whenNotPaused
+        nonReentrant
+        returns (uint256 tokenId)
+    {
+        if (voucher.seller == address(0)) revert ZeroAddress();
+        if (voucher.seller != _msgSender()) revert VoucherSellerMismatch(voucher.seller, _msgSender());
+        if (block.timestamp > voucher.expiry) revert VoucherExpired(voucher.expiry, block.timestamp);
+        if (voucher.listingId == bytes32(0)) revert EmptyListingId();
         if (bytes(metadataURI).length == 0) revert EmptyMetadataURI();
-        if (metadataHash == bytes32(0) || termsHash == bytes32(0)) revert EmptyHash();
-        if (tokenIdForListing[listingId] != 0) revert ListingAlreadyMinted(listingId);
-        if (!hasRole(MINTER_ROLE, _msgSender()) && _msgSender() != to) {
-            revert AccessControlUnauthorizedAccount(_msgSender(), MINTER_ROLE);
-        }
+        if (voucher.metadataHash == bytes32(0) || voucher.termsHash == bytes32(0)) revert EmptyHash();
+        if (keccak256(bytes(metadataURI)) != voucher.metadataURIHash) revert VoucherURIMismatch();
+        if (voucherUsed[voucher.seller][voucher.nonce]) revert VoucherAlreadyUsed(voucher.seller, voucher.nonce);
+        if (tokenIdForListing[voucher.listingId] != 0) revert ListingAlreadyMinted(voucher.listingId);
+
+        address signer = ECDSA.recover(hashVoucher(voucher), signature);
+        if (!hasRole(SIGNER_ROLE, signer)) revert InvalidVoucherSignature(signer);
+
+        voucherUsed[voucher.seller][voucher.nonce] = true;
 
         tokenId = _nextTokenId++;
-        tokenIdForListing[listingId] = tokenId;
+        tokenIdForListing[voucher.listingId] = tokenId;
         _passports[tokenId] = Passport({
-            listingId: listingId,
-            metadataHash: metadataHash,
-            termsHash: termsHash,
+            listingId: voucher.listingId,
+            metadataHash: voucher.metadataHash,
+            termsHash: voucher.termsHash,
             companionToken: address(0),
             status: PassportStatus.Listed,
             mintedAt: uint64(block.timestamp)
         });
         _tokenURIs[tokenId] = metadataURI;
-        _safeMint(to, tokenId);
+        _safeMint(voucher.seller, tokenId);
 
-        emit PassportMinted(tokenId, to, listingId, metadataURI, metadataHash, termsHash);
+        emit MintVoucherRedeemed(voucher.seller, voucher.nonce, tokenId, signer);
+        emit PassportMinted(
+            tokenId,
+            voucher.seller,
+            voucher.listingId,
+            metadataURI,
+            voucher.metadataHash,
+            voucher.termsHash
+        );
+    }
+
+    /**
+     * @notice Explicit forward-only lifecycle matrix.
+     *
+     *   Listed    -> Reserved | Withdrawn | Disputed
+     *   Reserved  -> Collected | Withdrawn | Disputed
+     *   Collected -> Disputed
+     *   Disputed  -> Collected | Withdrawn
+     *   Withdrawn -> (terminal)
+     */
+    function isValidTransition(PassportStatus from, PassportStatus to) public pure returns (bool) {
+        if (from == to) return false;
+        if (from == PassportStatus.Listed) {
+            return to == PassportStatus.Reserved || to == PassportStatus.Withdrawn || to == PassportStatus.Disputed;
+        }
+        if (from == PassportStatus.Reserved) {
+            return to == PassportStatus.Collected || to == PassportStatus.Withdrawn || to == PassportStatus.Disputed;
+        }
+        if (from == PassportStatus.Collected) {
+            return to == PassportStatus.Disputed;
+        }
+        if (from == PassportStatus.Disputed) {
+            return to == PassportStatus.Collected || to == PassportStatus.Withdrawn;
+        }
+        return false; // Withdrawn is terminal.
     }
 
     function setStatus(uint256 tokenId, PassportStatus newStatus) external onlyRole(STATUS_ROLE) whenNotPaused {
         _requireMinted(tokenId);
         PassportStatus previous = _passports[tokenId].status;
         if (previous == newStatus) revert StatusUnchanged(tokenId);
+        if (!isValidTransition(previous, newStatus)) revert InvalidStatusTransition(tokenId, previous, newStatus);
         _passports[tokenId].status = newStatus;
         emit PassportStatusChanged(tokenId, previous, newStatus);
     }
