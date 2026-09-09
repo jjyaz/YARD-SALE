@@ -222,7 +222,7 @@ function SellWizard() {
           toast.error(`${file.name} is larger than 10MB.`);
           continue;
         }
-        const path = `${user.id}/${draft.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+        const path = `${user.id}/${draft.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
         const { error } = await supabase.storage.from("listing-public").upload(path, file, {
           contentType: file.type,
           upsert: false,
