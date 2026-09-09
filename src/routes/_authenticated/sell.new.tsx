@@ -657,7 +657,7 @@ function SellWizard() {
             Continue
           </Button>
         ) : (
-          <Button disabled={!canPublish || publishing} onClick={() => void publish()}>
+          <Button disabled={!canPublish || publishing || !terms} onClick={() => void publish()}>
             {publishing ? "Publishing…" : "Publish listing"}
           </Button>
         )}
