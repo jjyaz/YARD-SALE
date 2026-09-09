@@ -297,7 +297,10 @@ function StatusPage() {
                 </div>
                 <div>
                   <dt className="font-semibold text-foreground">Deployed</dt>
-                  <dd>Nothing yet. Every address above must be configured before any action is offered.</dd>
+                  <dd>
+                    Nothing yet. Every address above must be configured before any action is
+                    offered.
+                  </dd>
                 </div>
                 <div>
                   <dt className="font-semibold text-foreground">Verified</dt>
@@ -308,7 +311,10 @@ function StatusPage() {
                 </div>
                 <div>
                   <dt className="font-semibold text-foreground">Independently audited</dt>
-                  <dd>No. Not built yet: escrow. There are no simulated transactions anywhere in this app.</dd>
+                  <dd>
+                    No. Not built yet: escrow. There are no simulated transactions anywhere in this
+                    app.
+                  </dd>
                 </div>
               </dl>
             </section>
