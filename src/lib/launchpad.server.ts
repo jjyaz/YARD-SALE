@@ -516,20 +516,24 @@ export function ipfsPinningStatus(): {
 const DEFAULT_IPFS_READ_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
 
 /**
- * Pins canonical JSON to IPFS via Pinata when a JWT is configured. Never fakes a CID.
+ * Pins arbitrary bytes to IPFS via Pinata when a JWT is configured. Never fakes a CID.
  * The returned CID is only trusted when it equals the locally computed CIDv1 (raw, sha2-256)
  * or when the bytes served for that CID are byte-identical to what was pinned.
  */
-export async function pinJsonToIpfs(canonical: string, name: string): Promise<PinResult> {
+export async function pinBytesToIpfs(
+  bytes: Uint8Array,
+  name: string,
+  contentType: string,
+): Promise<PinResult> {
   const jwt = process.env["PINATA_JWT"];
   if (!jwt) return { pinned: false, cid: null, missing: "PINATA_JWT", provider: null };
 
-  const bytes = new TextEncoder().encode(canonical);
   const { cidV1Raw } = await import("@/lib/ipfs");
   const expectedCid = await cidV1Raw(bytes);
 
+  const body = new Uint8Array(bytes);
   const form = new FormData();
-  form.append("file", new Blob([bytes], { type: "application/json" }), `${name}.json`);
+  form.append("file", new Blob([body], { type: contentType }), name);
   form.append("pinataMetadata", JSON.stringify({ name }));
   form.append("pinataOptions", JSON.stringify({ cidVersion: 1 }));
 
@@ -560,22 +564,27 @@ export async function pinJsonToIpfs(canonical: string, name: string): Promise<Pi
   try {
     const read = await fetch(`${gateway}${cid}`, {
       signal: controller.signal,
-      headers: { Accept: "application/json, */*" },
+      headers: { Accept: "*/*" },
     });
     if (!read.ok) throw new Error(`gateway responded ${read.status}`);
     const served = new Uint8Array(await read.arrayBuffer());
     const identical = served.length === bytes.length && served.every((b, i) => b === bytes[i]);
-    if (!identical) throw new Error("served bytes differ from the pinned metadata");
+    if (!identical) throw new Error("served bytes differ from what was pinned");
     return { pinned: true, cid, provider: "pinata", verifiedBy: "gateway" };
   } catch (error) {
     throw new Error(
       `IPFS pin could not be verified: Pinata returned ${cid} but the locally computed CID is ${expectedCid} and read-back failed (${
         error instanceof Error ? error.message : String(error)
-      }). The passport was not frozen with an unverified URI.`,
+      }). Nothing was frozen with an unverified content ID.`,
     );
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Pins canonical JSON to IPFS. See {@link pinBytesToIpfs}. */
+export async function pinJsonToIpfs(canonical: string, name: string): Promise<PinResult> {
+  return pinBytesToIpfs(new TextEncoder().encode(canonical), `${name}.json`, "application/json");
 }
 
 /* ---------------------------------------------------------------- Uniswap */

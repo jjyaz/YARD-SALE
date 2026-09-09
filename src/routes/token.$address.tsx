@@ -410,8 +410,48 @@ function TokenPage() {
             </div>
             <div>
               <dt className="text-muted-foreground">Position NFT</dt>
-              <dd>#{data.liquidity.position_token_id} — held by the creator, not locked</dd>
+              <dd>
+                #{data.liquidity.position_token_id}
+                {data.lock && "known" in data.lock && data.lock.known === false
+                  ? " — lock state could not be read from the network just now"
+                  : null}
+              </dd>
             </div>
+            {data.lock && data.lock.known ? (
+              <>
+                <div>
+                  <dt className="text-muted-foreground">Liquidity lock</dt>
+                  <dd className="font-semibold">
+                    {data.lock.locked
+                      ? data.lock.permanent
+                        ? "Locked permanently — verified on-chain"
+                        : `Locked until ${new Date(data.lock.unlockAt!).toLocaleDateString()} — verified on-chain`
+                      : data.lock.withdrawn
+                        ? "Previously locked, since withdrawn by the creator"
+                        : "Not locked"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Current NFT owner</dt>
+                  <dd className="break-all font-mono text-xs">
+                    {data.lock.currentOwner ?? "unknown"}
+                    {data.lock.locked ? " (locker contract)" : " (a wallet, not a locker)"}
+                  </dd>
+                </div>
+                {data.lock.locker ? (
+                  <div>
+                    <dt className="text-muted-foreground">Locker contract</dt>
+                    <dd className="break-all font-mono text-xs">{data.lock.locker}</dd>
+                  </div>
+                ) : null}
+                {data.lock.depositor ? (
+                  <div>
+                    <dt className="text-muted-foreground">Depositor</dt>
+                    <dd className="break-all font-mono text-xs">{data.lock.depositor}</dd>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
           </dl>
           <div className="mt-3 flex flex-wrap gap-4">
             {data.liquidity.pool_address ? (
@@ -434,10 +474,35 @@ function TokenPage() {
                 Position mint transaction <ExternalLink className="h-3.5 w-3.5" />
               </a>
             ) : null}
+            {data.lock && data.lock.known && data.lock.locker ? (
+              <a
+                className="inline-flex items-center gap-1 font-semibold underline underline-offset-4"
+                href={explorerAddressUrl(data.liquidity.chain_id, data.lock.locker)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Locker on the explorer <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
+            {data.liquidity.lock_tx_hash ? (
+              <a
+                className="inline-flex items-center gap-1 font-semibold underline underline-offset-4"
+                href={explorerTxUrl(data.liquidity.chain_id, data.liquidity.lock_tx_hash)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Lock transaction <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
             The opening ratio was chosen by the creator. The pool price is not an appraisal of the
-            physical item, liquidity can be removed at any time, and the token can go to zero.
+            physical item, and the token can go to zero.{" "}
+            {data.lock && data.lock.known && data.lock.locked
+              ? data.lock.permanent
+                ? "This position can never be withdrawn by anyone, including the creator."
+                : "Liquidity can be removed by the creator once the lock expires."
+              : "Liquidity is not locked and can be removed at any time."}
           </p>
         </section>
       ) : (

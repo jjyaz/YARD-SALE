@@ -17,7 +17,9 @@ import {
   parseFixed,
   priceDeviationBps,
   priceFromSqrtPriceX96,
+  quoteExistingPool,
   requireFreshQuote,
+  type ExistingPoolQuote,
 } from "@/lib/uniswap-math";
 
 type LiquidityUpdate = Database["public"]["Tables"]["liquidity_positions"]["Update"];
@@ -28,11 +30,42 @@ type IncreaseLiquidityArgs = {
   amount1: bigint;
 };
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/** The position NFT this receipt minted (Transfer from 0x0) to the expected recipient. */
+function findMintedTokenId(
+  logs: readonly Log[],
+  positionManager: `0x${string}`,
+  recipient: `0x${string}`,
+  decode: typeof DecodeEventLog,
+  checksum: typeof GetAddress,
+): bigint | null {
+  for (const log of logs) {
+    if (checksum(log.address) !== positionManager) continue;
+    try {
+      const decoded = decode({
+        abi: nonfungiblePositionManagerAbi,
+        data: log.data,
+        topics: log.topics,
+      });
+      if (decoded.eventName !== "Transfer") continue;
+      const args = decoded.args as unknown as { from: string; to: string; tokenId: bigint };
+      if (checksum(args.from) !== checksum(ZERO_ADDRESS)) continue;
+      if (checksum(args.to) !== recipient) continue;
+      return args.tokenId;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 function findIncreaseLiquidity(
   logs: readonly Log[],
   positionManager: `0x${string}`,
   decode: typeof DecodeEventLog,
   checksum: typeof GetAddress,
+  tokenId?: bigint,
 ): IncreaseLiquidityArgs | null {
   for (const log of logs) {
     if (checksum(log.address) !== positionManager) continue;
@@ -42,8 +75,10 @@ function findIncreaseLiquidity(
         data: log.data,
         topics: log.topics,
       });
-      if (decoded.eventName === "IncreaseLiquidity")
-        return decoded.args as unknown as IncreaseLiquidityArgs;
+      if (decoded.eventName !== "IncreaseLiquidity") continue;
+      const args = decoded.args as unknown as IncreaseLiquidityArgs;
+      if (tokenId !== undefined && args.tokenId !== tokenId) continue;
+      return args;
     } catch {
       continue;
     }
@@ -248,12 +283,29 @@ export const previewLiquidity = createServerFn({ method: "POST" })
       client.getGasPrice(),
     ]);
 
+    /** What the live price actually consumes, and what comes back. */
+    type LiveQuote = {
+      liquidity: string;
+      amount0Used: string;
+      amount1Used: string;
+      amount0Excess: string;
+      amount1Excess: string;
+      amount0Min: string;
+      amount1Min: string;
+      tokenUsed: string;
+      ethUsed: string;
+      tokenExcess: string;
+      ethExcess: string;
+      /** How far the live price has moved from the seller's own opening ratio. */
+      movementBpsFromRequested: number;
+    };
     let existingPool: {
       address: string;
       initialized: boolean;
       priceToken1PerToken0: string | null;
       sqrtPriceX96: string | null;
       liquidity: string;
+      quote: LiveQuote | null;
     } | null = null;
     if (poolAddress !== ZERO) {
       const [slot0, liquidity] = await Promise.all([
@@ -264,12 +316,38 @@ export const previewLiquidity = createServerFn({ method: "POST" })
           functionName: "liquidity",
         }),
       ]);
+      let quote: LiveQuote | null = null;
+      if (slot0[0] !== 0n) {
+        const q = quoteExistingPool({
+          sqrtPriceX96: slot0[0],
+          tickLower: plan.tickLower,
+          tickUpper: plan.tickUpper,
+          amount0Max: plan.amount0Desired,
+          amount1Max: plan.amount1Desired,
+          slippageBps: data.slippageBps,
+        });
+        quote = {
+          liquidity: q.liquidity.toString(),
+          amount0Used: q.amount0Used.toString(),
+          amount1Used: q.amount1Used.toString(),
+          amount0Excess: q.amount0Excess.toString(),
+          amount1Excess: q.amount1Excess.toString(),
+          amount0Min: q.amount0Min.toString(),
+          amount1Min: q.amount1Min.toString(),
+          tokenUsed: formatEther(plan.tokenIsToken0 ? q.amount0Used : q.amount1Used),
+          ethUsed: formatEther(plan.tokenIsToken0 ? q.amount1Used : q.amount0Used),
+          tokenExcess: formatEther(plan.tokenIsToken0 ? q.amount0Excess : q.amount1Excess),
+          ethExcess: formatEther(plan.tokenIsToken0 ? q.amount1Excess : q.amount0Excess),
+          movementBpsFromRequested: priceDeviationBps(plan.sqrtPriceX96, slot0[0]),
+        };
+      }
       existingPool = {
         address: poolAddress,
         initialized: slot0[0] !== 0n,
         priceToken1PerToken0: slot0[0] !== 0n ? priceFromSqrtPriceX96(slot0[0]) : null,
         sqrtPriceX96: slot0[0] !== 0n ? slot0[0].toString() : null,
         liquidity: liquidity.toString(),
+        quote,
       };
     }
 
@@ -412,8 +490,12 @@ export const previewLiquidity = createServerFn({ method: "POST" })
         ethBalance < ethNeeded
           ? `Your wallet holds ${formatEther(ethBalance)} ETH; about ${formatEther(ethNeeded)} ETH is needed for the deposit plus gas.`
           : null,
-        existingPool?.initialized
-          ? `A pool for this pair already exists at ${existingPool.priceToken1PerToken0} ${plan.tokenIsToken0 ? "WETH per token" : "tokens per WETH"}. Your amounts will be adjusted to that price and any excess stays in your wallet.`
+        existingPool?.initialized && existingPool.quote
+          ? `A pool for this pair already exists and trades at ${existingPool.priceToken1PerToken0} ${plan.tokenIsToken0 ? "WETH per token" : "tokens per WETH"} — ` +
+            `${(existingPool.quote.movementBpsFromRequested / 100).toFixed(2)}% away from your opening ratio. At that price the deposit uses ` +
+            `${existingPool.quote.tokenUsed} ${token.symbol} and ${existingPool.quote.ethUsed} ETH; ` +
+            `${existingPool.quote.tokenExcess} ${token.symbol} and ${existingPool.quote.ethExcess} ETH stay in your wallet. ` +
+            `The minimums are recalculated from this live price and you must confirm it before any approval.`
           : null,
       ].filter((p): p is string => Boolean(p)),
     };
@@ -499,6 +581,11 @@ export const startLiquidity = createServerFn({ method: "POST" })
       plan.token1,
       infra.feeTier,
     );
+    // Defaults for a brand-new pool: the seller's ratio IS the price, so both sides are consumed.
+    let amount0Min = plan.amount0Min;
+    let amount1Min = plan.amount1Min;
+    let quote: ExistingPoolQuote | null = null;
+
     if (live.initialized && live.sqrtPriceX96) {
       const acknowledged = data.acknowledgedPoolPriceX96
         ? BigInt(data.acknowledgedPoolPriceX96)
@@ -515,6 +602,17 @@ export const startLiquidity = createServerFn({ method: "POST" })
             `The quote is void — review the new price and confirm it again.`,
         );
       }
+      // Minimums must come from the LIVE price, never from the seller's opening ratio.
+      quote = quoteExistingPool({
+        sqrtPriceX96: live.sqrtPriceX96,
+        tickLower: plan.tickLower,
+        tickUpper: plan.tickUpper,
+        amount0Max: plan.amount0Desired,
+        amount1Max: plan.amount1Desired,
+        slippageBps: data.slippageBps,
+      });
+      amount0Min = quote.amount0Min;
+      amount1Min = quote.amount1Min;
     }
 
     const row = {
@@ -535,8 +633,13 @@ export const startLiquidity = createServerFn({ method: "POST" })
       tick_upper: plan.tickUpper,
       token_amount: tokenAmount.toString(),
       eth_amount: ethAmount.toString(),
-      amount0_min: plan.amount0Min.toString(),
-      amount1_min: plan.amount1Min.toString(),
+      amount0_min: amount0Min.toString(),
+      amount1_min: amount1Min.toString(),
+      quote_liquidity: quote ? quote.liquidity.toString() : null,
+      quote_amount0_used: quote ? quote.amount0Used.toString() : plan.amount0Desired.toString(),
+      quote_amount1_used: quote ? quote.amount1Used.toString() : plan.amount1Desired.toString(),
+      quote_amount0_excess: quote ? quote.amount0Excess.toString() : "0",
+      quote_amount1_excess: quote ? quote.amount1Excess.toString() : "0",
       slippage_bps: data.slippageBps,
       acknowledged_pool_price_x96:
         live.initialized && live.sqrtPriceX96 ? live.sqrtPriceX96.toString() : null,
@@ -892,6 +995,110 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
     const nextIndex = STEP_ORDER.indexOf(step) + 1;
     const next = STEP_ORDER[nextIndex] as LiquidityStep;
 
+    // ---- Transaction-level verification -------------------------------------------------
+    // A mined receipt proves nothing on its own. The transaction itself must be the exact call
+    // this plan asked for: right sender, right contract, right ETH value, right decoded
+    // arguments. Sufficient balances or allowances are never accepted as evidence.
+    const { decodeFunctionData } = await import("viem");
+    const tx = await client.getTransaction({ hash });
+    if (getAddress(tx.from) !== wallet) {
+      throw new Error(
+        `That transaction was sent by ${getAddress(tx.from)}, not by the planned wallet ${wallet}. Nothing advanced.`,
+      );
+    }
+    const expectedTarget =
+      step === "wrap" || step === "approve_weth"
+        ? weth
+        : step === "approve_token"
+          ? tokenAddress
+          : pm;
+    if (!tx.to || getAddress(tx.to) !== expectedTarget) {
+      throw new Error(
+        `That transaction was sent to ${tx.to ?? "a contract deployment"}, not to the expected ${expectedTarget}. Nothing advanced.`,
+      );
+    }
+    if (step !== "wrap" && tx.value !== 0n) {
+      throw new Error(
+        "That transaction carried ETH, which this step never does. Nothing advanced.",
+      );
+    }
+
+    if (step === "wrap") {
+      const call = decodeFunctionData({ abi: weth9Abi, data: tx.input });
+      if (call.functionName !== "deposit")
+        throw new Error(`That transaction called ${call.functionName}, not deposit.`);
+      if (tx.value <= 0n) throw new Error("The wrap transaction sent no ETH. Nothing advanced.");
+    } else if (step === "approve_weth" || step === "approve_token") {
+      const abi = step === "approve_weth" ? weth9Abi : companionTokenAbi;
+      const call = decodeFunctionData({ abi, data: tx.input });
+      if (call.functionName !== "approve")
+        throw new Error(`That transaction called ${call.functionName}, not approve.`);
+      const [spender, value] = call.args as unknown as [string, bigint];
+      if (getAddress(spender) !== pm)
+        throw new Error(
+          `The approval was granted to ${getAddress(spender)}, not to the official position manager ${pm}. Nothing advanced.`,
+        );
+      const required =
+        step === "approve_weth" ? BigInt(position.eth_amount) : BigInt(position.token_amount);
+      if (value < required)
+        throw new Error("The approved amount is below the planned deposit. Nothing advanced.");
+    } else if (step === "create_pool") {
+      const call = decodeFunctionData({ abi: nonfungiblePositionManagerAbi, data: tx.input });
+      if (call.functionName !== "createAndInitializePoolIfNecessary")
+        throw new Error(
+          `That transaction called ${call.functionName}, not createAndInitializePoolIfNecessary.`,
+        );
+      const [a0, a1, fee, sqrtPrice] = call.args as unknown as [string, string, number, bigint];
+      if (
+        getAddress(a0) !== token0 ||
+        getAddress(a1) !== token1 ||
+        Number(fee) !== position.fee_tier ||
+        sqrtPrice !== BigInt(position.sqrt_price_x96)
+      ) {
+        throw new Error(
+          "The pool-creation calldata does not match the plan (tokens, fee tier or opening price). Nothing advanced.",
+        );
+      }
+    } else if (step === "mint") {
+      const call = decodeFunctionData({ abi: nonfungiblePositionManagerAbi, data: tx.input });
+      if (call.functionName !== "mint")
+        throw new Error(`That transaction called ${call.functionName}, not mint.`);
+      const [params] = call.args as unknown as [
+        {
+          token0: string;
+          token1: string;
+          fee: number;
+          tickLower: number;
+          tickUpper: number;
+          amount0Desired: bigint;
+          amount1Desired: bigint;
+          amount0Min: bigint;
+          amount1Min: bigint;
+          recipient: string;
+        },
+      ];
+      const plannedDesired0 =
+        token0 === tokenAddress ? BigInt(position.token_amount) : BigInt(position.eth_amount);
+      const plannedDesired1 =
+        token1 === tokenAddress ? BigInt(position.token_amount) : BigInt(position.eth_amount);
+      if (
+        getAddress(params.token0) !== token0 ||
+        getAddress(params.token1) !== token1 ||
+        Number(params.fee) !== position.fee_tier ||
+        Number(params.tickLower) !== position.tick_lower ||
+        Number(params.tickUpper) !== position.tick_upper ||
+        params.amount0Desired !== plannedDesired0 ||
+        params.amount1Desired !== plannedDesired1 ||
+        params.amount0Min !== BigInt(position.amount0_min) ||
+        params.amount1Min !== BigInt(position.amount1_min) ||
+        getAddress(params.recipient) !== wallet
+      ) {
+        throw new Error(
+          "The mint calldata does not match the confirmed plan (tokens, fee, ticks, amounts, minimums or recipient). Nothing was saved.",
+        );
+      }
+    }
+
     // Verify the effect of each step against live state, not just the receipt.
     if (step === "wrap") {
       const balance = await client.readContract({
@@ -973,11 +1180,33 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
         .update({ pool_address: poolAddress.toLowerCase() })
         .eq("id", position.id);
     } else if (step === "mint") {
-      const minted = findIncreaseLiquidity(receipt.logs, pm, decodeEventLog, getAddress);
+      // Bind to the position NFT this very transaction minted to this wallet. An unrelated
+      // IncreaseLiquidity event in the same receipt is never accepted.
+      const mintedTokenId = findMintedTokenId(receipt.logs, pm, wallet, decodeEventLog, getAddress);
+      if (mintedTokenId === null) {
+        throw new Error(
+          "The transaction succeeded but the position manager did not mint a position NFT to your wallet in it. Nothing was saved.",
+        );
+      }
+      const minted = findIncreaseLiquidity(
+        receipt.logs,
+        pm,
+        decodeEventLog,
+        getAddress,
+        mintedTokenId,
+      );
       if (!minted)
         throw new Error(
-          "The transaction succeeded but no IncreaseLiquidity event was emitted by the position manager. Nothing was saved.",
+          "The transaction succeeded but no IncreaseLiquidity event for the newly minted position was emitted. Nothing was saved.",
         );
+      if (
+        minted.amount0 < BigInt(position.amount0_min) ||
+        minted.amount1 < BigInt(position.amount1_min)
+      ) {
+        throw new Error(
+          "The amounts actually deposited are below the confirmed minimums. Nothing was saved.",
+        );
+      }
       const [owner, pos, poolAddress] = await Promise.all([
         client.readContract({
           address: pm,
@@ -1303,5 +1532,390 @@ export const verifyLiquidityLock = createServerFn({ method: "POST" })
       message: permanent
         ? `Position #${positionId.toString()} is permanently locked in ${locker}.`
         : `Position #${positionId.toString()} is locked in ${locker} until ${unlockAt}.`,
+    };
+  });
+
+/* -------------------------------------------- locked position: fees & exit */
+
+/** Live, verified state of a locked position. Never claims a lock the chain does not confirm. */
+export const getLockState = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string }) => input)
+  .handler(async ({ data, context }) => {
+    const { getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const { data: position } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (!position?.position_token_id) return { known: false as const };
+    return readLockState(client, position);
+  });
+
+type LockStateInput = {
+  position_manager: string;
+  position_token_id: string | null;
+  locker_address: string | null;
+  wallet_address: string;
+};
+
+/** Shared reader used by the launchpad and the public token page. */
+export async function readLockState(
+  client: Awaited<ReturnType<typeof requireInfra>>["client"],
+  position: LockStateInput,
+) {
+  const { getAddress } = await import("viem");
+  if (!position.position_token_id)
+    throw new Error("This position has no verified position NFT yet.");
+  const pm = getAddress(position.position_manager);
+  const positionId = BigInt(position.position_token_id);
+  const currentOwner = await client
+    .readContract({
+      address: pm,
+      abi: nonfungiblePositionManagerAbi,
+      functionName: "ownerOf",
+      args: [positionId],
+    })
+    .catch(() => null);
+
+  if (!position.locker_address) {
+    return {
+      known: true as const,
+      locked: false,
+      positionId: positionId.toString(),
+      locker: null,
+      currentOwner: currentOwner ? getAddress(currentOwner) : null,
+      depositor: null,
+      permanent: false,
+      unlockAt: null as string | null,
+      withdrawn: false,
+      withdrawable: false,
+      collected: null as { amount0: string; amount1: string } | null,
+      owed: null as { amount0: string; amount1: string } | null,
+    };
+  }
+
+  const locker = getAddress(position.locker_address);
+  const [info, isLocked, collected, pos] = await Promise.all([
+    client.readContract({
+      address: locker,
+      abi: liquidityLockerAbi,
+      functionName: "lockInfo",
+      args: [positionId],
+    }),
+    client.readContract({
+      address: locker,
+      abi: liquidityLockerAbi,
+      functionName: "isLocked",
+      args: [positionId],
+    }),
+    client.readContract({
+      address: locker,
+      abi: liquidityLockerAbi,
+      functionName: "collectedFees",
+      args: [positionId],
+    }),
+    client.readContract({
+      address: pm,
+      abi: nonfungiblePositionManagerAbi,
+      functionName: "positions",
+      args: [positionId],
+    }),
+  ]);
+  const unlockAt = info.permanent ? null : new Date(Number(info.unlockAt) * 1000).toISOString();
+  return {
+    known: true as const,
+    locked: Boolean(isLocked) && currentOwner !== null && getAddress(currentOwner) === locker,
+    positionId: positionId.toString(),
+    locker,
+    currentOwner: currentOwner ? getAddress(currentOwner) : null,
+    depositor: getAddress(info.depositor),
+    permanent: info.permanent,
+    unlockAt,
+    withdrawn: info.withdrawn,
+    withdrawable: !info.permanent && !info.withdrawn && Number(info.unlockAt) * 1000 <= Date.now(),
+    collected: { amount0: collected[0].toString(), amount1: collected[1].toString() },
+    owed: { amount0: pos[10].toString(), amount1: pos[11].toString() },
+  };
+}
+
+async function loadLockedPosition(
+  db: Awaited<ReturnType<typeof admin>>,
+  userId: string,
+  listingId: string,
+) {
+  const { data: position } = await db
+    .from("liquidity_positions")
+    .select("*")
+    .eq("listing_id", listingId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!position?.position_token_id || !position.locker_address || !position.lock_verified_at) {
+    throw new Error("There is no verified locked position for this listing.");
+  }
+  return position;
+}
+
+/** Builds the depositor-only fee collection call. Fees always go to the depositor. */
+export const prepareFeeCollection = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string }) => input)
+  .handler(async ({ data, context }) => {
+    const { encodeFunctionData, getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const position = await loadLockedPosition(db, context.userId, data.listingId);
+    if (position.collect_fees_tx_hash) {
+      return {
+        pendingTxHash: position.collect_fees_tx_hash,
+        to: null,
+        data: null,
+        description: "A fee collection is already pending verification.",
+      };
+    }
+    const state = await readLockState(client, position);
+    if (!state.known || !state.locked)
+      throw new Error(
+        "The locker does not currently hold this position, so there is nothing to collect from.",
+      );
+    if (state.depositor && getAddress(state.depositor) !== getAddress(position.wallet_address))
+      throw new Error("Only the original depositor wallet can collect fees for this position.");
+    const owed0 = BigInt(state.owed?.amount0 ?? "0");
+    const owed1 = BigInt(state.owed?.amount1 ?? "0");
+    if (owed0 === 0n && owed1 === 0n)
+      throw new Error("No trading fees have accrued to this position yet.");
+
+    const MAX_UINT128 = 2n ** 128n - 1n;
+    return {
+      pendingTxHash: null,
+      to: getAddress(position.locker_address!),
+      data: encodeFunctionData({
+        abi: liquidityLockerAbi,
+        functionName: "collectFees",
+        args: [BigInt(position.position_token_id!), MAX_UINT128, MAX_UINT128],
+      }),
+      owed: { amount0: owed0.toString(), amount1: owed1.toString() },
+      description:
+        "Collects the accrued Uniswap trading fees. They are sent to your depositor wallet; the position NFT stays locked.",
+    };
+  });
+
+/** Builds the depositor-only withdrawal call for an expired timed lock. */
+export const prepareLockWithdrawal = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string }) => input)
+  .handler(async ({ data, context }) => {
+    const { encodeFunctionData, getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const position = await loadLockedPosition(db, context.userId, data.listingId);
+    if (position.withdraw_tx_hash) {
+      return {
+        pendingTxHash: position.withdraw_tx_hash,
+        to: null,
+        data: null,
+        description: "A withdrawal is already pending verification.",
+      };
+    }
+    const state = await readLockState(client, position);
+    if (!state.known || !state.locked) throw new Error("This position is not currently locked.");
+    if (state.permanent)
+      throw new Error("This lock is permanent. The position can never be withdrawn, by anyone.");
+    if (!state.withdrawable)
+      throw new Error(
+        `The lock does not expire until ${state.unlockAt}. Nothing can be withdrawn before then.`,
+      );
+    if (state.depositor && getAddress(state.depositor) !== getAddress(position.wallet_address))
+      throw new Error("Only the original depositor wallet can withdraw this position.");
+
+    return {
+      pendingTxHash: null,
+      to: getAddress(position.locker_address!),
+      data: encodeFunctionData({
+        abi: liquidityLockerAbi,
+        functionName: "withdraw",
+        args: [BigInt(position.position_token_id!)],
+      }),
+      description: `Returns position #${position.position_token_id} to your wallet. The lock has expired.`,
+    };
+  });
+
+/** Records either locker transaction so a refresh can recover and verify it. */
+export const recordLockerTx = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string; kind: "collect" | "withdraw"; txHash: string }) => {
+    if (!isTxHash(input.txHash)) throw new Error("That is not a valid transaction hash.");
+    if (input.kind !== "collect" && input.kind !== "withdraw")
+      throw new Error("Unknown locker action.");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const db = await admin();
+    const update: LiquidityUpdate =
+      data.kind === "collect"
+        ? { collect_fees_tx_hash: data.txHash.toLowerCase() }
+        : { withdraw_tx_hash: data.txHash.toLowerCase() };
+    const { error } = await db
+      .from("liquidity_positions")
+      .update(update)
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    return { recorded: true };
+  });
+
+/**
+ * Verifies a fee collection or a withdrawal exhaustively: sender, target, decoded call,
+ * arguments, emitted event and the resulting live ownership. Handles reverted or replaced
+ * transactions by clearing the pending hash instead of inventing a result.
+ */
+export const reconcileLockerTx = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string; kind: "collect" | "withdraw" }) => input)
+  .handler(async ({ data, context }) => {
+    const { decodeEventLog, decodeFunctionData, getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const position = await loadLockedPosition(db, context.userId, data.listingId);
+    const column = data.kind === "collect" ? "collect_fees_tx_hash" : "withdraw_tx_hash";
+    const hash = position[column];
+    if (!hash || !isTxHash(hash))
+      return { outcome: "pending" as const, message: "No transaction has been recorded yet." };
+
+    const locker = getAddress(position.locker_address!);
+    const wallet = getAddress(position.wallet_address);
+    const positionId = BigInt(position.position_token_id!);
+    const pm = getAddress(position.position_manager);
+
+    let receipt;
+    try {
+      receipt = await client.waitForTransactionReceipt({
+        hash: hash as `0x${string}`,
+        timeout: 60_000,
+        pollingInterval: 2_000,
+      });
+    } catch {
+      return {
+        outcome: "pending" as const,
+        message: "The transaction has not been mined yet. Check again shortly.",
+      };
+    }
+    if (receipt.status !== "success") {
+      const cleared: LiquidityUpdate = {};
+      cleared[column] = null;
+      await db.from("liquidity_positions").update(cleared).eq("id", position.id);
+      return {
+        outcome: "failed" as const,
+        message: "That transaction reverted. Nothing was saved.",
+      };
+    }
+
+    const tx = await client.getTransaction({ hash: hash as `0x${string}` });
+    if (getAddress(tx.from) !== wallet)
+      throw new Error("That transaction was not sent by the depositor wallet. Nothing was saved.");
+    if (!tx.to || getAddress(tx.to) !== locker)
+      throw new Error("That transaction was not sent to the verified locker. Nothing was saved.");
+    if (tx.value !== 0n)
+      throw new Error(
+        "That transaction carried ETH, which this call never does. Nothing was saved.",
+      );
+    const call = decodeFunctionData({ abi: liquidityLockerAbi, data: tx.input });
+    const expectedFn = data.kind === "collect" ? "collectFees" : "withdraw";
+    if (call.functionName !== expectedFn)
+      throw new Error(
+        `That transaction called ${call.functionName}, not ${expectedFn}. Nothing was saved.`,
+      );
+    if ((call.args as readonly unknown[])[0] !== positionId)
+      throw new Error("That transaction is for a different position. Nothing was saved.");
+
+    let event: { amount0?: bigint; amount1?: bigint } | null = null;
+    for (const log of receipt.logs) {
+      if (getAddress(log.address) !== locker) continue;
+      try {
+        const decoded = decodeEventLog({
+          abi: liquidityLockerAbi,
+          data: log.data,
+          topics: log.topics,
+        });
+        const args = decoded.args as unknown as {
+          positionId: bigint;
+          depositor: string;
+          amount0?: bigint;
+          amount1?: bigint;
+        };
+        if (args.positionId !== positionId) continue;
+        if (getAddress(args.depositor) !== wallet) continue;
+        if (data.kind === "collect" && decoded.eventName === "FeesCollected") {
+          event = args;
+          break;
+        }
+        if (data.kind === "withdraw" && decoded.eventName === "PositionWithdrawn") {
+          event = args;
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+    if (!event)
+      throw new Error(
+        `The transaction succeeded but the locker emitted no ${expectedFn} event for this position and depositor. Nothing was saved.`,
+      );
+
+    const owner = await client.readContract({
+      address: pm,
+      abi: nonfungiblePositionManagerAbi,
+      functionName: "ownerOf",
+      args: [positionId],
+    });
+
+    if (data.kind === "collect") {
+      if (getAddress(owner) !== locker)
+        throw new Error("The locker no longer holds the position NFT. Nothing was saved.");
+      const collected = await client.readContract({
+        address: locker,
+        abi: liquidityLockerAbi,
+        functionName: "collectedFees",
+        args: [positionId],
+      });
+      const { data: saved, error } = await db
+        .from("liquidity_positions")
+        .update({
+          collect_fees_tx_hash: null,
+          collected_amount0: collected[0].toString(),
+          collected_amount1: collected[1].toString(),
+          fees_collected_at: new Date().toISOString(),
+        })
+        .eq("id", position.id)
+        .select("*")
+        .single();
+      if (error) throw new Error(error.message);
+      return {
+        outcome: "collected" as const,
+        position: saved,
+        message: "Trading fees were collected to your wallet. The position is still locked.",
+      };
+    }
+
+    if (getAddress(owner) !== wallet)
+      throw new Error("The position NFT is not back in your wallet. Nothing was saved.");
+    const { data: saved, error } = await db
+      .from("liquidity_positions")
+      .update({
+        withdraw_tx_hash: null,
+        lock_withdrawn_at: new Date().toISOString(),
+        lock_verified_at: null,
+      })
+      .eq("id", position.id)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    return {
+      outcome: "withdrawn" as const,
+      position: saved,
+      message: `Position #${positionId.toString()} is back in your wallet. The liquidity is no longer locked.`,
     };
   });

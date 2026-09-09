@@ -319,6 +319,56 @@ export const liquidityLockerAbi = [
     ],
   },
   {
+    type: "function",
+    name: "collectFees",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "positionId", type: "uint256" },
+      { name: "amount0Max", type: "uint128" },
+      { name: "amount1Max", type: "uint128" },
+    ],
+    outputs: [
+      { name: "amount0", type: "uint256" },
+      { name: "amount1", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "collectedFees",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [
+      { name: "amount0", type: "uint256" },
+      { name: "amount1", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "FeesCollected",
+    inputs: [
+      { name: "positionId", type: "uint256", indexed: true },
+      { name: "depositor", type: "address", indexed: true },
+      { name: "amount0", type: "uint256", indexed: false },
+      { name: "amount1", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "PositionWithdrawn",
+    inputs: [
+      { name: "positionId", type: "uint256", indexed: true },
+      { name: "depositor", type: "address", indexed: true },
+      { name: "withdrawnAt", type: "uint256", indexed: false },
+    ],
+  },
+  {
     type: "event",
     name: "PositionLocked",
     inputs: [

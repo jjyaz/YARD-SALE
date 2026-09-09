@@ -55,11 +55,15 @@ import {
   resetStalledToken,
 } from "@/lib/launchpad.functions";
 import {
+  prepareFeeCollection,
   prepareLiquidityLock,
+  prepareLockWithdrawal,
   prepareLiquidityStep,
   previewLiquidity,
   reconcileLiquidity,
   recordLiquidityLock,
+  recordLockerTx,
+  reconcileLockerTx,
   recordLiquidityStep,
   resetLiquidity,
   startLiquidity,
@@ -214,6 +218,10 @@ function Launchpad() {
   const prepareLock = useServerFn(prepareLiquidityLock);
   const recordLock = useServerFn(recordLiquidityLock);
   const verifyLock = useServerFn(verifyLiquidityLock);
+  const prepareFees = useServerFn(prepareFeeCollection);
+  const prepareWithdraw = useServerFn(prepareLockWithdrawal);
+  const recordLocker = useServerFn(recordLockerTx);
+  const reconcileLocker = useServerFn(reconcileLockerTx);
 
   const [lockDays, setLockDays] = useState("180");
   const [lockPermanent, setLockPermanent] = useState(false);
@@ -633,6 +641,63 @@ function Launchpad() {
       const result = await verifyLock({ data: { listingId: selected.listing.id } });
       if (result.outcome === "locked") toast.success(result.message);
       else if (result.outcome === "failed") toast.error(result.message);
+      else toast.message(result.message);
+      await refresh();
+    });
+  }
+
+  /** Collects accrued Uniswap fees to the depositor wallet while the position stays locked. */
+  async function onCollectFees() {
+    if (!selected) return;
+    await run("lp-lock-fees", async () => {
+      const wallet = await ensureWallet();
+      const prep = await prepareFees({ data: { listingId: selected.listing.id } });
+      if (!prep.pendingTxHash) {
+        const hash = await sendTransaction({ from: wallet, to: prep.to!, data: prep.data! });
+        await recordLocker({
+          data: { listingId: selected.listing.id, kind: "collect", txHash: hash },
+        });
+      }
+      toast.message("Fee collection submitted. Waiting for the receipt…");
+      const result = await reconcileLocker({
+        data: { listingId: selected.listing.id, kind: "collect" },
+      });
+      if (result.outcome === "collected") toast.success(result.message);
+      else if (result.outcome === "failed") toast.error(result.message);
+      else toast.message(result.message);
+      await refresh();
+    });
+  }
+
+  /** Withdraws an expired timed lock back to the depositor wallet. */
+  async function onWithdrawLock() {
+    if (!selected) return;
+    await run("lp-lock-withdraw", async () => {
+      const wallet = await ensureWallet();
+      const prep = await prepareWithdraw({ data: { listingId: selected.listing.id } });
+      if (!prep.pendingTxHash) {
+        const hash = await sendTransaction({ from: wallet, to: prep.to!, data: prep.data! });
+        await recordLocker({
+          data: { listingId: selected.listing.id, kind: "withdraw", txHash: hash },
+        });
+      }
+      toast.message("Withdrawal submitted. Waiting for the receipt…");
+      const result = await reconcileLocker({
+        data: { listingId: selected.listing.id, kind: "withdraw" },
+      });
+      if (result.outcome === "withdrawn") toast.success(result.message);
+      else if (result.outcome === "failed") toast.error(result.message);
+      else toast.message(result.message);
+      await refresh();
+    });
+  }
+
+  /** Re-checks a locker transaction submitted before a refresh, including replaced ones. */
+  async function onReconcileLocker(kind: "collect" | "withdraw") {
+    if (!selected) return;
+    await run(`lp-lock-recheck-${kind}`, async () => {
+      const result = await reconcileLocker({ data: { listingId: selected.listing.id, kind } });
+      if (result.outcome === "failed") toast.error(result.message);
       else toast.message(result.message);
       await refresh();
     });
@@ -1501,6 +1566,56 @@ function Launchpad() {
                           <p className="pt-1 text-muted-foreground">
                             Verified on-chain: the locker contract owns this position NFT. Only your
                             wallet can withdraw it, and only after the unlock date.
+                          </p>
+                          {liquidity.fees_collected_at ? (
+                            <Field
+                              label="Fees collected so far"
+                              value={`${liquidity.collected_amount0 ?? "0"} / ${liquidity.collected_amount1 ?? "0"} base units`}
+                              mono={false}
+                            />
+                          ) : null}
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <Button size="sm" onClick={onCollectFees} disabled={busy !== null}>
+                              Collect trading fees
+                            </Button>
+                            {!liquidity.lock_permanent &&
+                            liquidity.lock_unlock_at &&
+                            new Date(liquidity.lock_unlock_at).getTime() <= Date.now() ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={onWithdrawLock}
+                                disabled={busy !== null}
+                              >
+                                Withdraw the position
+                              </Button>
+                            ) : null}
+                            {liquidity.collect_fees_tx_hash ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onReconcileLocker("collect")}
+                                disabled={busy !== null}
+                              >
+                                Check the pending fee collection
+                              </Button>
+                            ) : null}
+                            {liquidity.withdraw_tx_hash ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onReconcileLocker("withdraw")}
+                                disabled={busy !== null}
+                              >
+                                Check the pending withdrawal
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="text-muted-foreground">
+                            Fees are always paid to the depositor wallet and cannot be redirected.
+                            {liquidity.lock_permanent
+                              ? " This lock is permanent: the position can never be withdrawn, by anyone."
+                              : ""}
                           </p>
                         </div>
                       ) : (

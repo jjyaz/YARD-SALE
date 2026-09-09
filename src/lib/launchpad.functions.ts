@@ -191,7 +191,7 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }) => {
-    const { requireVerifiedDeployment, pinJsonToIpfs, ipfsPinningStatus } =
+    const { requireVerifiedDeployment, pinJsonToIpfs, pinBytesToIpfs, ipfsPinningStatus } =
       await import("@/lib/launchpad.server");
     const { cidV1Raw } = await import("@/lib/ipfs");
     const config = await requireVerifiedDeployment();
@@ -219,6 +219,18 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
           ? "This passport is already minted; its metadata is permanent."
           : "A mint transaction is pending for this listing. Check it before re-freezing.",
       );
+    }
+
+    // A mint authorisation already issued for the current metadata stays redeemable until it
+    // expires. Re-freezing now would leave a live voucher for superseded metadata, so it waits.
+    if (existing?.voucher_expires_at) {
+      const expiresAt = new Date(existing.voucher_expires_at).getTime();
+      if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+        throw new Error(
+          `A mint authorisation for the current metadata is still valid until ${new Date(expiresAt).toISOString()}. ` +
+            "Either send that mint, or wait for it to expire before freezing new metadata — otherwise the old authorisation could still mint the superseded version.",
+        );
+      }
     }
 
     // On mainnet the token URI must be permanent: require IPFS pinning.
@@ -263,8 +275,12 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     // The terms hash commits to the exact wording the seller accepted.
     const termsHash = keccak256(toBytes(terms.body));
 
-    // Hash the real photo bytes so the metadata fingerprint is verifiable.
-    const images: { url: string; sha256: string }[] = [];
+    // Every photo is pinned individually BEFORE the metadata is built, so the JSON only ever
+    // references content-addressed ipfs:// URIs. Changing or deleting the original file in
+    // storage afterwards cannot alter what the passport points at.
+    const images: { url: string; sha256: string; cid?: string | null }[] = [];
+    const imageCids: { storage_path: string; cid: string | null; sha256: string; uri: string }[] =
+      [];
     for (const item of media ?? []) {
       if (!item.storage_path) continue;
       const { data: file, error: downloadError } = await db.storage
@@ -275,11 +291,36 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
           `Photo ${item.storage_path} could not be read from storage: ${downloadError?.message ?? "missing"}`,
         );
       }
-      const bytes = Buffer.from(await file.arrayBuffer());
-      images.push({
-        url: item.public_url ?? item.storage_path,
-        sha256: `0x${createHash("sha256").update(bytes).digest("hex")}`,
-      });
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const sha256 = `0x${createHash("sha256").update(bytes).digest("hex")}`;
+      const localCid = await cidV1Raw(bytes);
+
+      let uri = item.public_url ?? item.storage_path;
+      let cid: string | null = null;
+      if (pinning.configured) {
+        const filename = item.storage_path.split("/").pop() || "photo";
+        const pinnedImage = await pinBytesToIpfs(
+          bytes,
+          filename,
+          file.type || "application/octet-stream",
+        );
+        if (!pinnedImage.pinned) {
+          throw new Error(
+            `Photo ${item.storage_path} could not be pinned to IPFS (${pinnedImage.missing} is missing). Nothing was frozen.`,
+          );
+        }
+        cid = pinnedImage.cid;
+        // pinBytesToIpfs only returns a CID it has verified against the exact bytes, either by
+        // local computation or a byte-identical gateway read-back.
+        if (pinnedImage.verifiedBy === "cid" && cid !== localCid) {
+          throw new Error(
+            `The pinning service returned ${cid} for ${item.storage_path} but those bytes hash to ${localCid}. Nothing was frozen.`,
+          );
+        }
+        uri = `ipfs://${cid}`;
+      }
+      images.push({ url: uri, sha256, cid });
+      imageCids.push({ storage_path: item.storage_path, cid, sha256, uri });
     }
     if (images.length === 0) throw new Error("No readable photos were found for this listing.");
 
@@ -347,6 +388,8 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       metadata_uri: metadataUri,
       storage_url: signed.signedUrl,
       ipfs_cid: pin.pinned ? pin.cid : computedCid,
+      metadata_cid: pin.pinned ? pin.cid : computedCid,
+      image_cids: imageCids,
       ipfs_pinned_at: pin.pinned ? now : null,
       metadata_hash: metadataHash,
       terms_hash: termsHash,
@@ -361,6 +404,12 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       token_id: null,
       block_number: null,
       confirmed_at: null,
+      // Bumping the version changes the voucher nonce, so no authorisation issued for the
+      // previous metadata can ever mint this one.
+      voucher_version: (existing?.voucher_version ?? 0) + 1,
+      voucher_nonce: null,
+      voucher_issued_at: null,
+      voucher_expires_at: null,
     };
 
     const { data: saved, error: saveError } = existing
@@ -445,20 +494,32 @@ export const prepareMint = createServerFn({ method: "POST" })
       );
     }
 
+    // The nonce is bound to the frozen metadata VERSION, so a voucher issued before a re-freeze
+    // can never authorise the superseded metadata.
+    const expiry = BigInt(Math.floor(Date.now() / 1000) + VOUCHER_TTL_SECONDS);
     const voucher = {
       seller: wallet,
       listingId: passport.listing_key as `0x${string}`,
       metadataURIHash: keccak256(toBytes(passport.metadata_uri)),
       metadataHash: passport.metadata_hash as `0x${string}`,
       termsHash: passport.terms_hash as `0x${string}`,
-      nonce: nonceForPassport(passport.id),
-      expiry: BigInt(Math.floor(Date.now() / 1000) + VOUCHER_TTL_SECONDS),
+      nonce: nonceForPassport(passport.id, passport.voucher_version ?? 0),
+      expiry,
     };
     const { signature } = await signMintVoucher({
       chainId: config.chainId,
       registry: config.registry,
       voucher,
     });
+    // Persisted so re-freezing is blocked while this authorisation is still redeemable.
+    await db
+      .from("item_passports")
+      .update({
+        voucher_nonce: voucher.nonce.toString(),
+        voucher_issued_at: new Date().toISOString(),
+        voucher_expires_at: new Date(Number(expiry) * 1000).toISOString(),
+      })
+      .eq("id", passport.id);
 
     const args = [voucher, passport.metadata_uri, signature] as const;
     const calldata = encodeFunctionData({
