@@ -26,7 +26,10 @@ function Admin() {
     queryKey: ["my-roles", user?.id],
     enabled: Boolean(user),
     queryFn: async () => {
-      const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", user!.id);
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user!.id);
       if (error) throw new Error(error.message);
       return (data ?? []).map((r) => r.role as string);
     },
@@ -40,7 +43,9 @@ function Admin() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("reports")
-        .select("id, reason, details, status, created_at, listing_id, listings(title, slug, status)")
+        .select(
+          "id, reason, details, status, created_at, listing_id, listings(title, slug, status)",
+        )
         .order("created_at", { ascending: false });
       if (error) throw new Error(error.message);
       return data ?? [];
@@ -71,7 +76,9 @@ function Admin() {
   }
 
   if (role.isLoading) {
-    return <p className="mx-auto max-w-3xl px-4 py-20 text-sm text-muted-foreground">Checking access…</p>;
+    return (
+      <p className="mx-auto max-w-3xl px-4 py-20 text-sm text-muted-foreground">Checking access…</p>
+    );
   }
 
   if (!isModerator) {
@@ -119,7 +126,10 @@ function Admin() {
                 ) : null}
                 {report.status === "open" ? (
                   <div className="mt-4 flex gap-3">
-                    <Button size="sm" onClick={() => void act(report.id, report.listing_id, "remove")}>
+                    <Button
+                      size="sm"
+                      onClick={() => void act(report.id, report.listing_id, "remove")}
+                    >
                       Remove listing
                     </Button>
                     <Button

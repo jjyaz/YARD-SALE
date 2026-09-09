@@ -38,7 +38,13 @@ const base = {
   termsHash: "0x473d0eeaaf7b4ec251c2bf167e865d0e5e1c9d15574572e2cd93c62367efb8a3",
   chainId: 46630,
   registry: "0x1111111111111111111111111111111111111111",
-  attestation: { possession: true, rightToSell: true, accurate: true, notProhibited: true, understandsNoRights: true },
+  attestation: {
+    possession: true,
+    rightToSell: true,
+    accurate: true,
+    notProhibited: true,
+    understandsNoRights: true,
+  },
   attestedAt: "2026-09-08T00:00:00.000Z",
 };
 
@@ -65,14 +71,23 @@ describe("buildPassportMetadata", () => {
 
   it("changes the hash when the listing changes", () => {
     const a = keccak256(toBytes(canonicalJson(buildPassportMetadata(base))));
-    const b = keccak256(toBytes(canonicalJson(buildPassportMetadata({ ...base, title: "Oak desk" }))));
+    const b = keccak256(
+      toBytes(canonicalJson(buildPassportMetadata({ ...base, title: "Oak desk" }))),
+    );
     expect(a).not.toBe(b);
   });
 
   it("changes the hash when a photo changes", () => {
     const a = keccak256(toBytes(canonicalJson(buildPassportMetadata(base))));
     const b = keccak256(
-      toBytes(canonicalJson(buildPassportMetadata({ ...base, images: [{ url: "https://cdn/a.jpg", sha256: "0xbb" }] }))),
+      toBytes(
+        canonicalJson(
+          buildPassportMetadata({
+            ...base,
+            images: [{ url: "https://cdn/a.jpg", sha256: "0xbb" }],
+          }),
+        ),
+      ),
     );
     expect(a).not.toBe(b);
   });
@@ -90,7 +105,13 @@ describe("buildPassportMetadata", () => {
 });
 
 describe("passportEligibility", () => {
-  const ok = { status: "published", is_demo: false, terms_version: "2026-01", mediaCount: 2, hasConfirmedPassport: false };
+  const ok = {
+    status: "published",
+    is_demo: false,
+    terms_version: "2026-01",
+    mediaCount: 2,
+    hasConfirmedPassport: false,
+  };
 
   it("accepts a complete published listing", () => {
     expect(passportEligibility(ok)).toEqual({ eligible: true, reason: "ok" });
@@ -147,7 +168,13 @@ describe("fromTokenUnits", () => {
 });
 
 describe("possession attestation", () => {
-  const full = { possession: true, rightToSell: true, accurate: true, notProhibited: true, understandsNoRights: true };
+  const full = {
+    possession: true,
+    rightToSell: true,
+    accurate: true,
+    notProhibited: true,
+    understandsNoRights: true,
+  };
 
   it("requires every statement to be explicitly accepted", () => {
     expect(ATTESTATION_STATEMENTS).toHaveLength(5);
@@ -180,7 +207,12 @@ describe("liquidity risk statements", () => {
 });
 
 describe("validateTokenParams", () => {
-  const ok = { name: "Teak Desk Token", symbol: "TEAK", totalSupply: toTokenUnits("1000000"), creatorAllocation: toTokenUnits("1000000") };
+  const ok = {
+    name: "Teak Desk Token",
+    symbol: "TEAK",
+    totalSupply: toTokenUnits("1000000"),
+    creatorAllocation: toTokenUnits("1000000"),
+  };
 
   it("accepts a valid fixed-supply configuration", () => {
     expect(validateTokenParams(ok)).toBeNull();
@@ -189,8 +221,16 @@ describe("validateTokenParams", () => {
 
   it("mirrors the on-chain MAX_SUPPLY", () => {
     expect(COMPANION_MAX_SUPPLY).toBe(10n ** 12n * 10n ** 18n);
-    expect(validateTokenParams({ ...ok, totalSupply: COMPANION_MAX_SUPPLY, creatorAllocation: COMPANION_MAX_SUPPLY })).toBeNull();
-    expect(validateTokenParams({ ...ok, totalSupply: COMPANION_MAX_SUPPLY + 1n })).toMatch(/exceeds the contract maximum/);
+    expect(
+      validateTokenParams({
+        ...ok,
+        totalSupply: COMPANION_MAX_SUPPLY,
+        creatorAllocation: COMPANION_MAX_SUPPLY,
+      }),
+    ).toBeNull();
+    expect(validateTokenParams({ ...ok, totalSupply: COMPANION_MAX_SUPPLY + 1n })).toMatch(
+      /exceeds the contract maximum/,
+    );
   });
 
   it("rejects empty names/symbols, zero supply and over-allocation", () => {
@@ -199,7 +239,11 @@ describe("validateTokenParams", () => {
     expect(validateTokenParams({ ...ok, symbol: "" })).toMatch(/symbol is required/);
     expect(validateTokenParams({ ...ok, symbol: "TOOLONGSYMBOL12345" })).toMatch(/16 characters/);
     expect(validateTokenParams({ ...ok, totalSupply: 0n })).toMatch(/greater than zero/);
-    expect(validateTokenParams({ ...ok, creatorAllocation: 0n })).toMatch(/allocation must be greater/);
-    expect(validateTokenParams({ ...ok, creatorAllocation: ok.totalSupply + 1n })).toMatch(/cannot exceed/);
+    expect(validateTokenParams({ ...ok, creatorAllocation: 0n })).toMatch(
+      /allocation must be greater/,
+    );
+    expect(validateTokenParams({ ...ok, creatorAllocation: ok.totalSupply + 1n })).toMatch(
+      /cannot exceed/,
+    );
   });
 });

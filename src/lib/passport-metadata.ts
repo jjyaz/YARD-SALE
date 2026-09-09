@@ -17,9 +17,15 @@ export type PossessionAttestation = {
 };
 
 export const ATTESTATION_STATEMENTS: { key: keyof PossessionAttestation; text: string }[] = [
-  { key: "possession", text: "I physically possess this item today and can hand it over at pickup." },
+  {
+    key: "possession",
+    text: "I physically possess this item today and can hand it over at pickup.",
+  },
   { key: "rightToSell", text: "I own this item or am authorised by its owner to sell it." },
-  { key: "accurate", text: "The photos and description are accurate and have not been edited to hide damage." },
+  {
+    key: "accurate",
+    text: "The photos and description are accurate and have not been edited to hide damage.",
+  },
   { key: "notProhibited", text: "It is not a prohibited, stolen, recalled or counterfeit item." },
   {
     key: "understandsNoRights",
@@ -27,7 +33,9 @@ export const ATTESTATION_STATEMENTS: { key: keyof PossessionAttestation; text: s
   },
 ];
 
-export function attestationComplete(a: Partial<PossessionAttestation> | null | undefined): a is PossessionAttestation {
+export function attestationComplete(
+  a: Partial<PossessionAttestation> | null | undefined,
+): a is PossessionAttestation {
   return Boolean(a) && ATTESTATION_STATEMENTS.every((s) => a?.[s.key] === true);
 }
 
@@ -187,8 +195,10 @@ export function validateTokenParams(input: {
   if (!input.symbol.trim()) return "Token symbol is required.";
   if (input.symbol.trim().length > 16) return "Token symbol must be 16 characters or fewer.";
   if (input.totalSupply <= 0n) return "Total supply must be greater than zero.";
-  if (input.totalSupply > COMPANION_MAX_SUPPLY) return "Total supply exceeds the contract maximum of 1,000,000,000,000 tokens.";
+  if (input.totalSupply > COMPANION_MAX_SUPPLY)
+    return "Total supply exceeds the contract maximum of 1,000,000,000,000 tokens.";
   if (input.creatorAllocation <= 0n) return "Your allocation must be greater than zero.";
-  if (input.creatorAllocation > input.totalSupply) return "Your allocation cannot exceed the total supply.";
+  if (input.creatorAllocation > input.totalSupply)
+    return "Your allocation cannot exceed the total supply.";
   return null;
 }

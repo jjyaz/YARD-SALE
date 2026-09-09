@@ -33,7 +33,11 @@ function assertAddress(value: string, label: string): asserts value is `0x${stri
 }
 
 /** The connected wallet must be one the account has proven ownership of by signature. */
-async function requireLinkedWallet(db: Awaited<ReturnType<typeof admin>>, userId: string, wallet: string) {
+async function requireLinkedWallet(
+  db: Awaited<ReturnType<typeof admin>>,
+  userId: string,
+  wallet: string,
+) {
   const { data } = await db.from("wallets").select("address").eq("user_id", userId);
   const linked = (data ?? []).map((w) => w.address.toLowerCase());
   if (!linked.includes(wallet.toLowerCase())) {
@@ -44,18 +48,38 @@ async function requireLinkedWallet(db: Awaited<ReturnType<typeof admin>>, userId
 }
 
 type ReceiptOutcome =
-  | { kind: "success"; receipt: Awaited<ReturnType<ReturnType<typeof import("viem")["createPublicClient"]>["getTransactionReceipt"]>> }
-  | { kind: "reverted"; receipt: Awaited<ReturnType<ReturnType<typeof import("viem")["createPublicClient"]>["getTransactionReceipt"]>> }
+  | {
+      kind: "success";
+      receipt: Awaited<
+        ReturnType<
+          ReturnType<(typeof import("viem"))["createPublicClient"]>["getTransactionReceipt"]
+        >
+      >;
+    }
+  | {
+      kind: "reverted";
+      receipt: Awaited<
+        ReturnType<
+          ReturnType<(typeof import("viem"))["createPublicClient"]>["getTransactionReceipt"]
+        >
+      >;
+    }
   | { kind: "pending" };
 
 async function receiptFor(
-  client: Awaited<ReturnType<typeof import("@/lib/launchpad.server")["rpcClient"]>>,
+  client: Awaited<ReturnType<(typeof import("@/lib/launchpad.server"))["rpcClient"]>>,
   hash: `0x${string}`,
   waitMs: number,
 ): Promise<ReceiptOutcome> {
   try {
-    const receipt = await client.waitForTransactionReceipt({ hash, timeout: waitMs, pollingInterval: 2_000 });
-    return receipt.status === "success" ? { kind: "success", receipt } : { kind: "reverted", receipt };
+    const receipt = await client.waitForTransactionReceipt({
+      hash,
+      timeout: waitMs,
+      pollingInterval: 2_000,
+    });
+    return receipt.status === "success"
+      ? { kind: "success", receipt }
+      : { kind: "reverted", receipt };
   } catch {
     return { kind: "pending" };
   }
@@ -67,27 +91,42 @@ export const getLaunchpadState = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const db = await admin();
-    const { verifyDeployment, verifyLiquidityInfra, ipfsPinningStatus } = await import("@/lib/launchpad.server");
+    const { verifyDeployment, verifyLiquidityInfra, ipfsPinningStatus } =
+      await import("@/lib/launchpad.server");
 
-    const [{ data: listings }, { data: passports }, { data: tokens }, { data: wallets }, { data: liquidity }, health, liquidityInfra] =
-      await Promise.all([
-        db
-          .from("listings")
-          .select("id, slug, title, status, is_demo, terms_version, price_eth, is_free, created_at")
-          .eq("seller_id", context.userId)
-          .order("created_at", { ascending: false }),
-        db.from("item_passports").select("*").eq("user_id", context.userId),
-        db.from("companion_tokens").select("*").eq("user_id", context.userId),
-        db.from("wallets").select("address, chain_id, verified_at").eq("user_id", context.userId).order("verified_at", { ascending: false }),
-        db.from("liquidity_positions").select("*").eq("user_id", context.userId),
-        verifyDeployment(),
-        verifyLiquidityInfra(),
-      ]);
+    const [
+      { data: listings },
+      { data: passports },
+      { data: tokens },
+      { data: wallets },
+      { data: liquidity },
+      health,
+      liquidityInfra,
+    ] = await Promise.all([
+      db
+        .from("listings")
+        .select("id, slug, title, status, is_demo, terms_version, price_eth, is_free, created_at")
+        .eq("seller_id", context.userId)
+        .order("created_at", { ascending: false }),
+      db.from("item_passports").select("*").eq("user_id", context.userId),
+      db.from("companion_tokens").select("*").eq("user_id", context.userId),
+      db
+        .from("wallets")
+        .select("address, chain_id, verified_at")
+        .eq("user_id", context.userId)
+        .order("verified_at", { ascending: false }),
+      db.from("liquidity_positions").select("*").eq("user_id", context.userId),
+      verifyDeployment(),
+      verifyLiquidityInfra(),
+    ]);
 
     const mediaCounts = new Map<string, number>();
     const ids = (listings ?? []).map((l) => l.id);
     if (ids.length > 0) {
-      const { data: media } = await db.from("listing_media").select("listing_id").in("listing_id", ids);
+      const { data: media } = await db
+        .from("listing_media")
+        .select("listing_id")
+        .in("listing_id", ids);
       for (const row of media ?? []) {
         mediaCounts.set(row.listing_id, (mediaCounts.get(row.listing_id) ?? 0) + 1);
       }
@@ -95,10 +134,15 @@ export const getLaunchpadState = createServerFn({ method: "POST" })
 
     // A listing can only be minted if the terms version it was published under still
     // resolves to a real row — that row's hash goes on-chain as the immutable terms hash.
-    const versions = Array.from(new Set((listings ?? []).map((l) => l.terms_version).filter((v): v is string => Boolean(v))));
+    const versions = Array.from(
+      new Set((listings ?? []).map((l) => l.terms_version).filter((v): v is string => Boolean(v))),
+    );
     const knownVersions = new Set<string>();
     if (versions.length > 0) {
-      const { data: termRows } = await db.from("terms_versions").select("version").in("version", versions);
+      const { data: termRows } = await db
+        .from("terms_versions")
+        .select("version")
+        .in("version", versions);
       for (const row of termRows ?? []) knownVersions.add(row.version);
     }
 
@@ -142,11 +186,13 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { listingId: string; attestation: PossessionAttestation }) => {
     if (!input.listingId) throw new Error("A listing is required.");
-    if (!attestationComplete(input.attestation)) throw new Error("Every possession statement must be confirmed.");
+    if (!attestationComplete(input.attestation))
+      throw new Error("Every possession statement must be confirmed.");
     return input;
   })
   .handler(async ({ data, context }) => {
-    const { requireVerifiedDeployment, pinJsonToIpfs, ipfsPinningStatus } = await import("@/lib/launchpad.server");
+    const { requireVerifiedDeployment, pinJsonToIpfs, ipfsPinningStatus } =
+      await import("@/lib/launchpad.server");
     const { cidV1Raw } = await import("@/lib/ipfs");
     const config = await requireVerifiedDeployment();
     const db = await admin();
@@ -162,7 +208,11 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     if (!listing) throw new Error("Listing not found.");
 
-    const { data: existing } = await db.from("item_passports").select("*").eq("listing_id", listing.id).maybeSingle();
+    const { data: existing } = await db
+      .from("item_passports")
+      .select("*")
+      .eq("listing_id", listing.id)
+      .maybeSingle();
     if (existing && existing.status !== "frozen" && existing.status !== "failed") {
       throw new Error(
         existing.status === "confirmed"
@@ -174,14 +224,24 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     // On mainnet the token URI must be permanent: require IPFS pinning.
     const pinning = ipfsPinningStatus();
     if (config.chainId === ROBINHOOD_MAINNET_ID && !pinning.configured) {
-      throw new Error(`IPFS pinning is not configured: the ${pinning.missing} secret is missing. Mainnet passports require a permanent ipfs:// metadata URI.`);
+      throw new Error(
+        `IPFS pinning is not configured: the ${pinning.missing} secret is missing. Mainnet passports require a permanent ipfs:// metadata URI.`,
+      );
     }
 
     const [{ data: media }, { data: profile }, { data: terms }] = await Promise.all([
-      db.from("listing_media").select("storage_path, public_url, ordinal").eq("listing_id", listing.id).order("ordinal"),
+      db
+        .from("listing_media")
+        .select("storage_path, public_url, ordinal")
+        .eq("listing_id", listing.id)
+        .order("ordinal"),
       db.from("profiles").select("handle").eq("id", context.userId).maybeSingle(),
       listing.terms_version
-        ? db.from("terms_versions").select("version, body, terms_hash").eq("version", listing.terms_version).maybeSingle()
+        ? db
+            .from("terms_versions")
+            .select("version, body, terms_hash")
+            .eq("version", listing.terms_version)
+            .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
 
@@ -193,8 +253,12 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       hasConfirmedPassport: false,
       termsKnown: listing.terms_version ? Boolean(terms) : undefined,
     });
-    if (!eligibility.eligible) throw new Error(`This listing is not eligible: ${eligibilityLabel[eligibility.reason]}.`);
-    if (!terms) throw new Error(`Terms version ${listing.terms_version} was not found, so the terms hash cannot be computed.`);
+    if (!eligibility.eligible)
+      throw new Error(`This listing is not eligible: ${eligibilityLabel[eligibility.reason]}.`);
+    if (!terms)
+      throw new Error(
+        `Terms version ${listing.terms_version} was not found, so the terms hash cannot be computed.`,
+      );
 
     // The terms hash commits to the exact wording the seller accepted.
     const termsHash = keccak256(toBytes(terms.body));
@@ -203,9 +267,13 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     const images: { url: string; sha256: string }[] = [];
     for (const item of media ?? []) {
       if (!item.storage_path) continue;
-      const { data: file, error: downloadError } = await db.storage.from(METADATA_BUCKET).download(item.storage_path);
+      const { data: file, error: downloadError } = await db.storage
+        .from(METADATA_BUCKET)
+        .download(item.storage_path);
       if (downloadError || !file) {
-        throw new Error(`Photo ${item.storage_path} could not be read from storage: ${downloadError?.message ?? "missing"}`);
+        throw new Error(
+          `Photo ${item.storage_path} could not be read from storage: ${downloadError?.message ?? "missing"}`,
+        );
       }
       const bytes = Buffer.from(await file.arrayBuffer());
       images.push({
@@ -253,10 +321,18 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     const path = `passports/${listing.id}.json`;
     const { error: uploadError } = await db.storage
       .from(METADATA_BUCKET)
-      .upload(path, new Blob([canonical], { type: "application/json" }), { upsert: true, contentType: "application/json" });
+      .upload(path, new Blob([canonical], { type: "application/json" }), {
+        upsert: true,
+        contentType: "application/json",
+      });
     if (uploadError) throw new Error(`Metadata upload failed: ${uploadError.message}`);
-    const { data: signed, error: signError } = await db.storage.from(METADATA_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 365 * 5);
-    if (signError || !signed?.signedUrl) throw new Error(`Metadata URL could not be created: ${signError?.message ?? "unknown error"}`);
+    const { data: signed, error: signError } = await db.storage
+      .from(METADATA_BUCKET)
+      .createSignedUrl(path, 60 * 60 * 24 * 365 * 5);
+    if (signError || !signed?.signedUrl)
+      throw new Error(
+        `Metadata URL could not be created: ${signError?.message ?? "unknown error"}`,
+      );
 
     // Pin to IPFS when configured. The URI is ipfs:// only if the pin really happened.
     const pin = await pinJsonToIpfs(canonical, `yardsale-passport-${listing.id}`);
@@ -291,7 +367,12 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       ? await db.from("item_passports").update(row).eq("id", existing.id).select("*").single()
       : await db.from("item_passports").insert(row).select("*").single();
     if (saveError) throw new Error(saveError.message);
-    return { passport: saved, pinned: pin.pinned, pinningMissing: pin.pinned ? null : pin.missing, computedCid };
+    return {
+      passport: saved,
+      pinned: pin.pinned,
+      pinningMissing: pin.pinned ? null : pin.missing,
+      computedCid,
+    };
   });
 
 /* ---------------------------------------------------------- mint preparation */
@@ -318,10 +399,17 @@ export const prepareMint = createServerFn({ method: "POST" })
     if (!passport) throw new Error("Freeze the passport metadata first.");
     if (passport.status === "confirmed") throw new Error("This passport is already minted.");
     if (passport.status === "submitted" && passport.tx_hash) {
-      throw new Error("A mint transaction is already pending for this listing. Check it before sending another.");
+      throw new Error(
+        "A mint transaction is already pending for this listing. Check it before sending another.",
+      );
     }
-    if (passport.chain_id !== config.chainId || passport.contract_address !== config.registry.toLowerCase()) {
-      throw new Error("The frozen metadata targets a different chain or registry. Re-freeze it for the current configuration.");
+    if (
+      passport.chain_id !== config.chainId ||
+      passport.contract_address !== config.registry.toLowerCase()
+    ) {
+      throw new Error(
+        "The frozen metadata targets a different chain or registry. Re-freeze it for the current configuration.",
+      );
     }
 
     const client = rpcClient(config.chainId);
@@ -340,9 +428,8 @@ export const prepareMint = createServerFn({ method: "POST" })
     // The registry rejects any mint that is not authorised by the platform signer, so a
     // stranger who knows this listing's public UUID cannot front-run the seller.
     const { keccak256, toBytes } = await import("viem");
-    const { nonceForPassport, platformSignerAddress, signMintVoucher, VOUCHER_TTL_SECONDS } = await import(
-      "@/lib/passport-voucher.server"
-    );
+    const { nonceForPassport, platformSignerAddress, signMintVoucher, VOUCHER_TTL_SECONDS } =
+      await import("@/lib/passport-voucher.server");
 
     const signerAddress = await platformSignerAddress();
     const signerRole = keccak256(toBytes("SIGNER_ROLE"));
@@ -367,12 +454,23 @@ export const prepareMint = createServerFn({ method: "POST" })
       nonce: nonceForPassport(passport.id),
       expiry: BigInt(Math.floor(Date.now() / 1000) + VOUCHER_TTL_SECONDS),
     };
-    const { signature } = await signMintVoucher({ chainId: config.chainId, registry: config.registry, voucher });
+    const { signature } = await signMintVoucher({
+      chainId: config.chainId,
+      registry: config.registry,
+      voucher,
+    });
 
     const args = [voucher, passport.metadata_uri, signature] as const;
-    const calldata = encodeFunctionData({ abi: assetRegistryAbi, functionName: "mintPassport", args });
+    const calldata = encodeFunctionData({
+      abi: assetRegistryAbi,
+      functionName: "mintPassport",
+      args,
+    });
 
-    const [balance, gasPrice] = await Promise.all([client.getBalance({ address: wallet }), client.getGasPrice()]);
+    const [balance, gasPrice] = await Promise.all([
+      client.getBalance({ address: wallet }),
+      client.getGasPrice(),
+    ]);
     let gasEstimate: bigint | null = null;
     let gasError: string | null = null;
     try {
@@ -399,6 +497,9 @@ export const prepareMint = createServerFn({ method: "POST" })
         metadataURI: passport.metadata_uri,
         metadataHash: passport.metadata_hash,
         termsHash: passport.terms_hash,
+        voucherNonce: voucher.nonce.toString(),
+        voucherExpiry: new Date(Number(voucher.expiry) * 1000).toISOString(),
+        voucherSigner: signerAddress,
       },
       wallet,
       balanceWei: balance.toString(),
@@ -407,7 +508,12 @@ export const prepareMint = createServerFn({ method: "POST" })
       gasEstimate: gasEstimate?.toString() ?? null,
       feeEstimateEth: feeWei !== null ? formatEther(feeWei) : null,
       gasError,
-      insufficientFunds: feeWei !== null ? balance < feeWei : gasError?.toLowerCase().includes("insufficient") ? true : false,
+      insufficientFunds:
+        feeWei !== null
+          ? balance < feeWei
+          : gasError?.toLowerCase().includes("insufficient")
+            ? true
+            : false,
     };
   });
 
@@ -471,49 +577,96 @@ export const reconcilePassport = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     if (!passport) throw new Error("No passport record for this listing.");
-    if (passport.status === "confirmed") return { outcome: "confirmed" as const, passport, message: "Already verified." };
+    if (passport.status === "confirmed")
+      return { outcome: "confirmed" as const, passport, message: "Already verified." };
 
     const registry = getAddress(config.registry);
     const listingKey = passport.listing_key as `0x${string}`;
 
-    type Minted = { tokenId: bigint; owner: string; metadataHash: string; termsHash: string; txHash: string | null; blockNumber: bigint | null };
+    type Minted = {
+      tokenId: bigint;
+      owner: string;
+      metadataHash: string;
+      termsHash: string;
+      txHash: string | null;
+      blockNumber: bigint | null;
+    };
     let minted: Minted | null = null;
 
     // 1) Receipt path.
     if (passport.tx_hash && isTxHash(passport.tx_hash)) {
-      const outcome = await receiptFor(client, passport.tx_hash, Math.min(Math.max(data.waitMs ?? 60_000, 5_000), 120_000));
+      const outcome = await receiptFor(
+        client,
+        passport.tx_hash,
+        Math.min(Math.max(data.waitMs ?? 60_000, 5_000), 120_000),
+      );
       if (outcome.kind === "reverted") {
         const { data: failed } = await db
           .from("item_passports")
-          .update({ status: "failed", failure_reason: "The mint transaction reverted on-chain. Nothing was minted.", last_reconciled_at: now })
+          .update({
+            status: "failed",
+            failure_reason: "The mint transaction reverted on-chain. Nothing was minted.",
+            last_reconciled_at: now,
+          })
           .eq("id", passport.id)
           .select("*")
           .single();
-        return { outcome: "failed" as const, passport: failed, message: "The mint transaction reverted." };
+        return {
+          outcome: "failed" as const,
+          passport: failed,
+          message: "The mint transaction reverted.",
+        };
       }
       if (outcome.kind === "success") {
         for (const log of outcome.receipt.logs) {
           if (getAddress(log.address) !== registry) continue;
           try {
-            const decoded = decodeEventLog({ abi: assetRegistryAbi, data: log.data, topics: log.topics });
+            const decoded = decodeEventLog({
+              abi: assetRegistryAbi,
+              data: log.data,
+              topics: log.topics,
+            });
             if (decoded.eventName !== "PassportMinted") continue;
-            const args = decoded.args as unknown as { tokenId: bigint; owner: string; listingId: string; metadataHash: string; termsHash: string };
+            const args = decoded.args as unknown as {
+              tokenId: bigint;
+              owner: string;
+              listingId: string;
+              metadataHash: string;
+              termsHash: string;
+            };
             if (args.listingId.toLowerCase() !== listingKey.toLowerCase()) continue;
-            minted = { ...args, txHash: outcome.receipt.transactionHash, blockNumber: outcome.receipt.blockNumber };
+            minted = {
+              ...args,
+              txHash: outcome.receipt.transactionHash,
+              blockNumber: outcome.receipt.blockNumber,
+            };
             break;
           } catch {
             continue;
           }
         }
-        if (!minted) throw new Error("The transaction succeeded but contains no PassportMinted event for this listing. Nothing was saved.");
+        if (!minted)
+          throw new Error(
+            "The transaction succeeded but contains no PassportMinted event for this listing. Nothing was saved.",
+          );
       }
     }
 
     // 2) Chain-state recovery (lost hash, dropped/replaced tx, or refresh before the receipt arrived).
     if (!minted) {
-      const tokenId = await client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "tokenIdForListing", args: [listingKey] });
+      const tokenId = await client.readContract({
+        address: registry,
+        abi: assetRegistryAbi,
+        functionName: "tokenIdForListing",
+        args: [listingKey],
+      });
       if (tokenId === 0n) {
-        const { data: pending } = await db.from("item_passports").update({ last_reconciled_at: now }).eq("id", passport.id).select("*").single();
+        const { data: pending } = await db
+          .from("item_passports")
+          .update({ last_reconciled_at: now })
+          .eq("id", passport.id)
+          .select("*")
+          .single();
         return {
           outcome: "pending" as const,
           passport: pending,
@@ -523,8 +676,18 @@ export const reconcilePassport = createServerFn({ method: "POST" })
         };
       }
       const [record, owner] = await Promise.all([
-        client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "passport", args: [tokenId] }),
-        client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "ownerOf", args: [tokenId] }),
+        client.readContract({
+          address: registry,
+          abi: assetRegistryAbi,
+          functionName: "passport",
+          args: [tokenId],
+        }),
+        client.readContract({
+          address: registry,
+          abi: assetRegistryAbi,
+          functionName: "ownerOf",
+          args: [tokenId],
+        }),
       ]);
       let txHash: string | null = null;
       let blockNumber: bigint | null = null;
@@ -546,18 +709,112 @@ export const reconcilePassport = createServerFn({ method: "POST" })
       } catch {
         // Log lookup is best-effort; chain state alone is authoritative.
       }
-      minted = { tokenId, owner, metadataHash: record.metadataHash, termsHash: record.termsHash, txHash, blockNumber };
+      minted = {
+        tokenId,
+        owner,
+        metadataHash: record.metadataHash,
+        termsHash: record.termsHash,
+        txHash,
+        blockNumber,
+      };
     }
 
     // 3) Verify the on-chain record matches what was frozen, then persist.
-    if (minted.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase()) {
-      throw new Error("On-chain metadata fingerprint does not match the frozen metadata. Nothing was saved.");
+    // A matching event is never sufficient on its own: state, tokenURI, the transaction target
+    // and the decoded calldata all have to agree with the frozen record.
+    const { decodeFunctionData } = await import("viem");
+
+    const chainRecord = await client.readContract({
+      address: registry,
+      abi: assetRegistryAbi,
+      functionName: "passport",
+      args: [minted.tokenId],
+    });
+    if (chainRecord.listingId.toLowerCase() !== listingKey.toLowerCase()) {
+      throw new Error(
+        "The on-chain passport belongs to a different listing key. Nothing was saved.",
+      );
     }
-    if (minted.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase()) {
+    if (chainRecord.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase()) {
+      throw new Error(
+        "On-chain metadata fingerprint does not match the frozen metadata. Nothing was saved.",
+      );
+    }
+    if (chainRecord.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase()) {
       throw new Error("On-chain terms fingerprint does not match. Nothing was saved.");
     }
-    const onChainOwner = await client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "ownerOf", args: [minted.tokenId] });
-    if (getAddress(onChainOwner) !== getAddress(minted.owner)) throw new Error("Passport owner could not be confirmed on-chain. Nothing was saved.");
+    if (
+      minted.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase() ||
+      minted.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase()
+    ) {
+      throw new Error(
+        "The mint event fingerprints do not match the frozen metadata. Nothing was saved.",
+      );
+    }
+
+    const onChainUri = await client.readContract({
+      address: registry,
+      abi: assetRegistryAbi,
+      functionName: "tokenURI",
+      args: [minted.tokenId],
+    });
+    if (onChainUri !== passport.metadata_uri) {
+      throw new Error("The on-chain tokenURI is not the frozen metadata URI. Nothing was saved.");
+    }
+
+    const onChainOwner = await client.readContract({
+      address: registry,
+      abi: assetRegistryAbi,
+      functionName: "ownerOf",
+      args: [minted.tokenId],
+    });
+    if (getAddress(onChainOwner) !== getAddress(minted.owner))
+      throw new Error("Passport owner could not be confirmed on-chain. Nothing was saved.");
+    // The passport must be held by a wallet this account has proven it controls.
+    const { data: walletRows } = await db
+      .from("wallets")
+      .select("address")
+      .eq("user_id", context.userId);
+    const linkedWallets = (walletRows ?? []).map((w) => w.address.toLowerCase());
+    if (!linkedWallets.includes(onChainOwner.toLowerCase())) {
+      throw new Error(
+        `The passport is owned by ${onChainOwner}, which is not a wallet linked to this account. Nothing was saved.`,
+      );
+    }
+
+    // Transaction-level verification: right sender, right contract, right decoded call.
+    if (minted.txHash && isTxHash(minted.txHash)) {
+      const tx = await client.getTransaction({ hash: minted.txHash as `0x${string}` });
+      if (!tx.to || getAddress(tx.to) !== registry) {
+        throw new Error(
+          "The transaction was not sent to the verified registry contract. Nothing was saved.",
+        );
+      }
+      if (getAddress(tx.from) !== getAddress(onChainOwner)) {
+        throw new Error("The transaction sender is not the passport owner. Nothing was saved.");
+      }
+      const decodedCall = decodeFunctionData({ abi: assetRegistryAbi, data: tx.input });
+      if (decodedCall.functionName !== "mintPassport") {
+        throw new Error(
+          `The transaction called ${decodedCall.functionName}, not mintPassport. Nothing was saved.`,
+        );
+      }
+      const [voucherArg, uriArg] = decodedCall.args as unknown as [
+        { seller: string; listingId: string; metadataHash: string; termsHash: string },
+        string,
+      ];
+      if (
+        voucherArg.listingId.toLowerCase() !== listingKey.toLowerCase() ||
+        voucherArg.metadataHash.toLowerCase() !== passport.metadata_hash.toLowerCase() ||
+        voucherArg.termsHash.toLowerCase() !== passport.terms_hash.toLowerCase() ||
+        getAddress(voucherArg.seller) !== getAddress(onChainOwner) ||
+        uriArg !== passport.metadata_uri
+      ) {
+        throw new Error(
+          "The transaction calldata does not match the frozen passport. Nothing was saved.",
+        );
+      }
+    }
 
     const { data: confirmed, error } = await db
       .from("item_passports")
@@ -566,7 +823,8 @@ export const reconcilePassport = createServerFn({ method: "POST" })
         token_id: minted.tokenId.toString() as unknown as number,
         wallet_address: minted.owner.toLowerCase(),
         tx_hash: minted.txHash ?? passport.tx_hash,
-        block_number: minted.blockNumber !== null ? Number(minted.blockNumber) : passport.block_number,
+        block_number:
+          minted.blockNumber !== null ? Number(minted.blockNumber) : passport.block_number,
         confirmed_at: now,
         last_reconciled_at: now,
         failure_reason: null,
@@ -577,7 +835,11 @@ export const reconcilePassport = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     await db.from("listings").update({ passport_minted: true }).eq("id", passport.listing_id);
-    return { outcome: "confirmed" as const, passport: confirmed, message: "Item Passport verified on-chain." };
+    return {
+      outcome: "confirmed" as const,
+      passport: confirmed,
+      message: "Item Passport verified on-chain.",
+    };
   });
 
 /** Clears a submitted-but-never-mined mint so the seller can try again. Refuses if anything exists on-chain. */
@@ -596,7 +858,8 @@ export const resetStalledMint = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     if (!passport) throw new Error("No passport record for this listing.");
-    if (passport.status !== "submitted" && passport.status !== "failed") throw new Error("Only a pending or failed mint can be reset.");
+    if (passport.status !== "submitted" && passport.status !== "failed")
+      throw new Error("Only a pending or failed mint can be reset.");
 
     const tokenId = await client.readContract({
       address: config.registry,
@@ -604,16 +867,33 @@ export const resetStalledMint = createServerFn({ method: "POST" })
       functionName: "tokenIdForListing",
       args: [passport.listing_key as `0x${string}`],
     });
-    if (tokenId !== 0n) throw new Error("A passport already exists on-chain for this listing. Use “Check the pending transaction” to recover it instead.");
+    if (tokenId !== 0n)
+      throw new Error(
+        "A passport already exists on-chain for this listing. Use “Check the pending transaction” to recover it instead.",
+      );
     if (passport.tx_hash && isTxHash(passport.tx_hash)) {
-      const receipt = await client.getTransactionReceipt({ hash: passport.tx_hash }).catch(() => null);
-      if (receipt?.status === "success") throw new Error("That transaction was mined. Use “Check the pending transaction” to recover it.");
-      const ageMs = passport.submitted_at ? Date.now() - new Date(passport.submitted_at).getTime() : Number.POSITIVE_INFINITY;
-      if (!receipt && ageMs < 5 * 60_000) throw new Error("Give the transaction at least five minutes before resetting.");
+      const receipt = await client
+        .getTransactionReceipt({ hash: passport.tx_hash })
+        .catch(() => null);
+      if (receipt?.status === "success")
+        throw new Error(
+          "That transaction was mined. Use “Check the pending transaction” to recover it.",
+        );
+      const ageMs = passport.submitted_at
+        ? Date.now() - new Date(passport.submitted_at).getTime()
+        : Number.POSITIVE_INFINITY;
+      if (!receipt && ageMs < 5 * 60_000)
+        throw new Error("Give the transaction at least five minutes before resetting.");
     }
     const { data: reset, error } = await db
       .from("item_passports")
-      .update({ status: "frozen", tx_hash: null, submitted_at: null, failure_reason: null, last_reconciled_at: new Date().toISOString() })
+      .update({
+        status: "frozen",
+        tx_hash: null,
+        submitted_at: null,
+        failure_reason: null,
+        last_reconciled_at: new Date().toISOString(),
+      })
       .eq("id", passport.id)
       .select("*")
       .single();
@@ -666,34 +946,77 @@ export const prepareToken = createServerFn({ method: "POST" })
     if (!passport || passport.status !== "confirmed" || passport.token_id === null) {
       throw new Error("Mint and confirm the Item Passport before creating a companion token.");
     }
-    const { data: existing } = await db.from("companion_tokens").select("*").eq("passport_id", passport.id).maybeSingle();
-    if (existing?.status === "confirmed") throw new Error("This passport already has a companion token. The pairing is permanent.");
+    const { data: existing } = await db
+      .from("companion_tokens")
+      .select("*")
+      .eq("passport_id", passport.id)
+      .maybeSingle();
+    if (existing?.status === "confirmed")
+      throw new Error("This passport already has a companion token. The pairing is permanent.");
     if (existing?.status === "submitted" && existing.tx_hash) {
-      throw new Error("A companion token transaction is already pending for this passport. Check it before sending another.");
+      throw new Error(
+        "A companion token transaction is already pending for this passport. Check it before sending another.",
+      );
     }
 
     const client = rpcClient(config.chainId);
     const wallet = getAddress(data.wallet);
     const passportTokenId = BigInt(String(passport.token_id));
     const [owner, existingToken, predicted] = await Promise.all([
-      client.readContract({ address: config.registry, abi: assetRegistryAbi, functionName: "ownerOf", args: [passportTokenId] }),
-      client.readContract({ address: config.factory, abi: tokenFactoryAbi, functionName: "tokenForPassport", args: [passportTokenId] }),
-      client.readContract({ address: config.factory, abi: tokenFactoryAbi, functionName: "predictTokenAddress", args: [passportTokenId] }),
+      client.readContract({
+        address: config.registry,
+        abi: assetRegistryAbi,
+        functionName: "ownerOf",
+        args: [passportTokenId],
+      }),
+      client.readContract({
+        address: config.factory,
+        abi: tokenFactoryAbi,
+        functionName: "tokenForPassport",
+        args: [passportTokenId],
+      }),
+      client.readContract({
+        address: config.factory,
+        abi: tokenFactoryAbi,
+        functionName: "predictTokenAddress",
+        args: [passportTokenId],
+      }),
     ]);
     if (getAddress(owner) !== wallet) {
-      throw new Error(`Passport #${passportTokenId} is owned by ${owner}, not by the connected wallet. Only the passport owner can launch its token.`);
+      throw new Error(
+        `Passport #${passportTokenId} is owned by ${owner}, not by the connected wallet. Only the passport owner can launch its token.`,
+      );
     }
     if (existingToken !== "0x0000000000000000000000000000000000000000") {
       return { alreadyCreated: true as const, tokenAddress: existingToken };
     }
 
-    const args = [passportTokenId, data.name.trim(), data.symbol.trim().toUpperCase(), BigInt(data.totalSupply), BigInt(data.creatorAllocation)] as const;
-    const calldata = encodeFunctionData({ abi: tokenFactoryAbi, functionName: "createCompanionToken", args });
-    const [balance, gasPrice] = await Promise.all([client.getBalance({ address: wallet }), client.getGasPrice()]);
+    const args = [
+      passportTokenId,
+      data.name.trim(),
+      data.symbol.trim().toUpperCase(),
+      BigInt(data.totalSupply),
+      BigInt(data.creatorAllocation),
+    ] as const;
+    const calldata = encodeFunctionData({
+      abi: tokenFactoryAbi,
+      functionName: "createCompanionToken",
+      args,
+    });
+    const [balance, gasPrice] = await Promise.all([
+      client.getBalance({ address: wallet }),
+      client.getGasPrice(),
+    ]);
     let gasEstimate: bigint | null = null;
     let gasError: string | null = null;
     try {
-      gasEstimate = await client.estimateContractGas({ address: config.factory, abi: tokenFactoryAbi, functionName: "createCompanionToken", args, account: wallet });
+      gasEstimate = await client.estimateContractGas({
+        address: config.factory,
+        abi: tokenFactoryAbi,
+        functionName: "createCompanionToken",
+        args,
+        account: wallet,
+      });
     } catch (error) {
       gasError = (error as Error).message.split("\n").slice(0, 2).join(" ");
     }
@@ -719,7 +1042,10 @@ export const prepareToken = createServerFn({ method: "POST" })
       gasEstimate: gasEstimate?.toString() ?? null,
       feeEstimateEth: feeWei !== null ? formatEther(feeWei) : null,
       gasError,
-      insufficientFunds: feeWei !== null ? balance < feeWei : Boolean(gasError?.toLowerCase().includes("insufficient")),
+      insufficientFunds:
+        feeWei !== null
+          ? balance < feeWei
+          : Boolean(gasError?.toLowerCase().includes("insufficient")),
     };
   });
 
@@ -746,8 +1072,13 @@ export const recordTokenSubmission = createServerFn({ method: "POST" })
       throw new Error("Mint and confirm the Item Passport before creating a companion token.");
     }
 
-    const { data: existing } = await db.from("companion_tokens").select("*").eq("passport_id", passport.id).maybeSingle();
-    if (existing?.status === "confirmed") throw new Error("This passport already has a companion token.");
+    const { data: existing } = await db
+      .from("companion_tokens")
+      .select("*")
+      .eq("passport_id", passport.id)
+      .maybeSingle();
+    if (existing?.status === "confirmed")
+      throw new Error("This passport already has a companion token.");
     if (existing?.status === "submitted" && existing.tx_hash && existing.tx_hash !== data.txHash) {
       throw new Error("Another companion token transaction is already pending for this passport.");
     }
@@ -802,22 +1133,43 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     if (!token) throw new Error("No companion token record for this listing.");
-    if (token.status === "confirmed") return { outcome: "confirmed" as const, token, message: "Already verified." };
+    if (token.status === "confirmed")
+      return { outcome: "confirmed" as const, token, message: "Already verified." };
 
-    const { data: passport } = await db.from("item_passports").select("*").eq("id", token.passport_id).single();
+    const { data: passport } = await db
+      .from("item_passports")
+      .select("*")
+      .eq("id", token.passport_id)
+      .single();
     if (!passport?.token_id) throw new Error("The passport for this token is not confirmed.");
     const passportTokenId = BigInt(String(passport.token_id));
     const factory = getAddress(config.factory);
 
-    type Created = { token: string; creator: string; totalSupply: bigint; creatorAllocation: bigint; txHash: string | null; blockNumber: bigint | null };
+    type Created = {
+      token: string;
+      creator: string;
+      totalSupply: bigint;
+      creatorAllocation: bigint;
+      txHash: string | null;
+      blockNumber: bigint | null;
+    };
     let created: Created | null = null;
 
     if (token.tx_hash && isTxHash(token.tx_hash)) {
-      const outcome = await receiptFor(client, token.tx_hash, Math.min(Math.max(data.waitMs ?? 60_000, 5_000), 120_000));
+      const outcome = await receiptFor(
+        client,
+        token.tx_hash,
+        Math.min(Math.max(data.waitMs ?? 60_000, 5_000), 120_000),
+      );
       if (outcome.kind === "reverted") {
         const { data: failed } = await db
           .from("companion_tokens")
-          .update({ status: "failed", failure_reason: "The token deployment transaction reverted on-chain. No token was created.", last_reconciled_at: now })
+          .update({
+            status: "failed",
+            failure_reason:
+              "The token deployment transaction reverted on-chain. No token was created.",
+            last_reconciled_at: now,
+          })
           .eq("id", token.id)
           .select("*")
           .single();
@@ -827,60 +1179,226 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
         for (const log of outcome.receipt.logs) {
           if (getAddress(log.address) !== factory) continue;
           try {
-            const decoded = decodeEventLog({ abi: tokenFactoryAbi, data: log.data, topics: log.topics });
+            const decoded = decodeEventLog({
+              abi: tokenFactoryAbi,
+              data: log.data,
+              topics: log.topics,
+            });
             if (decoded.eventName !== "CompanionTokenCreated") continue;
-            const args = decoded.args as unknown as { passportTokenId: bigint; token: string; creator: string; totalSupply: bigint; creatorAllocation: bigint };
+            const args = decoded.args as unknown as {
+              passportTokenId: bigint;
+              token: string;
+              creator: string;
+              totalSupply: bigint;
+              creatorAllocation: bigint;
+            };
             if (args.passportTokenId !== passportTokenId) continue;
-            created = { ...args, txHash: outcome.receipt.transactionHash, blockNumber: outcome.receipt.blockNumber };
+            created = {
+              ...args,
+              txHash: outcome.receipt.transactionHash,
+              blockNumber: outcome.receipt.blockNumber,
+            };
             break;
           } catch {
             continue;
           }
         }
-        if (!created) throw new Error("The transaction succeeded but contains no CompanionTokenCreated event for this passport. Nothing was saved.");
+        if (!created)
+          throw new Error(
+            "The transaction succeeded but contains no CompanionTokenCreated event for this passport. Nothing was saved.",
+          );
       }
     }
 
     if (!created) {
-      const onChainToken = await client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "tokenForPassport", args: [passportTokenId] });
+      const onChainToken = await client.readContract({
+        address: factory,
+        abi: tokenFactoryAbi,
+        functionName: "tokenForPassport",
+        args: [passportTokenId],
+      });
       if (onChainToken === zeroAddress) {
-        const { data: pending } = await db.from("companion_tokens").update({ last_reconciled_at: now }).eq("id", token.id).select("*").single();
-        return { outcome: "pending" as const, token: pending, message: "The deployment has not been mined yet and no token exists for this passport." };
+        const { data: pending } = await db
+          .from("companion_tokens")
+          .update({ last_reconciled_at: now })
+          .eq("id", token.id)
+          .select("*")
+          .single();
+        return {
+          outcome: "pending" as const,
+          token: pending,
+          message: "The deployment has not been mined yet and no token exists for this passport.",
+        };
       }
-      const [creator, totalSupply] = await Promise.all([
-        client.readContract({ address: getAddress(onChainToken), abi: companionTokenAbi, functionName: "creator" }),
-        client.readContract({ address: getAddress(onChainToken), abi: companionTokenAbi, functionName: "totalSupply" }),
-      ]);
-      const creatorBalance = await client.readContract({ address: getAddress(onChainToken), abi: companionTokenAbi, functionName: "balanceOf", args: [getAddress(creator)] });
-      created = { token: onChainToken, creator, totalSupply, creatorAllocation: creatorBalance, txHash: null, blockNumber: null };
+      // Recovery after a lost hash. Allocations are read from the immutable creation event —
+      // never from current balances, which the creator may already have transferred away.
+      const { parseAbiItem } = await import("viem");
+      const logs = await client.getLogs({
+        address: factory,
+        event: parseAbiItem(
+          "event CompanionTokenCreated(uint256 indexed passportTokenId, address indexed token, address indexed creator, string name, string symbol, uint256 totalSupply, uint256 creatorAllocation)",
+        ),
+        args: { passportTokenId },
+        fromBlock: 0n,
+        toBlock: "latest",
+      });
+      const hit = logs.find((l) => getAddress(l.args.token as string) === getAddress(onChainToken));
+      if (!hit) {
+        throw new Error(
+          "A token exists for this passport but its creation event could not be read from the chain, so its allocations cannot be verified. Nothing was saved.",
+        );
+      }
+      created = {
+        token: onChainToken,
+        creator: hit.args.creator as string,
+        totalSupply: hit.args.totalSupply as bigint,
+        creatorAllocation: hit.args.creatorAllocation as bigint,
+        txHash: hit.transactionHash,
+        blockNumber: hit.blockNumber,
+      };
     }
 
     const tokenAddress = getAddress(created.token);
     // Real deployed bytecode: must be exactly an ERC-1167 clone of the verified implementation.
     const bytecode = await client.getCode({ address: tokenAddress });
-    if (!bytecode || bytecode === "0x") throw new Error("No contract code at the token address. Nothing was saved.");
+    if (!bytecode || bytecode === "0x")
+      throw new Error("No contract code at the token address. Nothing was saved.");
     const expected = erc1167Bytecode(config.implementation);
     if (bytecode.toLowerCase() !== expected) {
-      throw new Error("The deployed bytecode is not a minimal clone of the verified token implementation. Nothing was saved.");
+      throw new Error(
+        "The deployed bytecode is not a minimal clone of the verified token implementation. Nothing was saved.",
+      );
     }
 
-    const [totalSupply, creatorBalance, pairedTokenId, pairedOnRegistry, tokenFactory, tokenRegistry, passportForToken] = await Promise.all([
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "totalSupply" }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "balanceOf", args: [getAddress(created.creator)] }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "passportTokenId" }),
-      client.readContract({ address: getAddress(config.registry), abi: assetRegistryAbi, functionName: "companionTokenOf", args: [passportTokenId] }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "factory" }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "registry" }),
-      client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "passportForToken", args: [tokenAddress] }),
+    const [
+      totalSupply,
+      onChainCreator,
+      pairedTokenId,
+      pairedOnRegistry,
+      tokenFactory,
+      tokenRegistry,
+      passportForToken,
+    ] = await Promise.all([
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "totalSupply",
+      }),
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "creator",
+      }),
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "passportTokenId",
+      }),
+      client.readContract({
+        address: getAddress(config.registry),
+        abi: assetRegistryAbi,
+        functionName: "companionTokenOf",
+        args: [passportTokenId],
+      }),
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "factory",
+      }),
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "registry",
+      }),
+      client.readContract({
+        address: factory,
+        abi: tokenFactoryAbi,
+        functionName: "passportForToken",
+        args: [tokenAddress],
+      }),
     ]);
 
-    if (totalSupply !== BigInt(String(token.total_supply))) throw new Error("On-chain total supply does not match what you submitted. Nothing was saved.");
-    if (creatorBalance !== BigInt(String(token.creator_allocation))) throw new Error("On-chain creator allocation does not match what you submitted. Nothing was saved.");
-    if (getAddress(created.creator) !== getAddress(token.wallet_address)) throw new Error("The token creator is not the submitting wallet. Nothing was saved.");
-    if (pairedTokenId !== passportTokenId || passportForToken !== passportTokenId) throw new Error("The token is not bound to this passport. Nothing was saved.");
-    if (getAddress(pairedOnRegistry) !== tokenAddress) throw new Error("The registry is not paired with this token. Nothing was saved.");
-    if (getAddress(tokenFactory) !== factory || getAddress(tokenRegistry) !== getAddress(config.registry)) {
-      throw new Error("The token does not point back at the verified factory and registry. Nothing was saved.");
+    const submittedSupply = BigInt(String(token.total_supply));
+    const submittedAllocation = BigInt(String(token.creator_allocation));
+    if (totalSupply !== submittedSupply)
+      throw new Error(
+        "On-chain total supply does not match what you submitted. Nothing was saved.",
+      );
+    // Allocations come from the creation event, not from live balances: tokens may legitimately
+    // have moved between the deployment and this reconciliation.
+    if (
+      created.totalSupply !== submittedSupply ||
+      created.creatorAllocation !== submittedAllocation
+    ) {
+      throw new Error("The minted allocations do not match what you submitted. Nothing was saved.");
+    }
+    if (created.creatorAllocation > created.totalSupply)
+      throw new Error("The creator allocation exceeds the total supply. Nothing was saved.");
+    if (getAddress(onChainCreator) !== getAddress(created.creator))
+      throw new Error(
+        "The token's recorded creator does not match its creation event. Nothing was saved.",
+      );
+    if (getAddress(created.creator) !== getAddress(token.wallet_address))
+      throw new Error("The token creator is not the submitting wallet. Nothing was saved.");
+    if (pairedTokenId !== passportTokenId || passportForToken !== passportTokenId)
+      throw new Error("The token is not bound to this passport. Nothing was saved.");
+    if (getAddress(pairedOnRegistry) !== tokenAddress)
+      throw new Error("The registry is not paired with this token. Nothing was saved.");
+    if (
+      getAddress(tokenFactory) !== factory ||
+      getAddress(tokenRegistry) !== getAddress(config.registry)
+    ) {
+      throw new Error(
+        "The token does not point back at the verified factory and registry. Nothing was saved.",
+      );
+    }
+
+    // The passport must still be held by the creator, and the transaction itself must be the
+    // expected call to the verified factory from that same wallet.
+    const passportOwner = await client.readContract({
+      address: getAddress(config.registry),
+      abi: assetRegistryAbi,
+      functionName: "ownerOf",
+      args: [passportTokenId],
+    });
+    if (getAddress(passportOwner) !== getAddress(created.creator)) {
+      throw new Error("The passport is not owned by the token creator. Nothing was saved.");
+    }
+
+    const creationHash = created.txHash ?? token.tx_hash;
+    if (creationHash && isTxHash(creationHash)) {
+      const { decodeFunctionData } = await import("viem");
+      const tx = await client.getTransaction({ hash: creationHash as `0x${string}` });
+      if (!tx.to || getAddress(tx.to) !== factory) {
+        throw new Error(
+          "The transaction was not sent to the verified token factory. Nothing was saved.",
+        );
+      }
+      if (getAddress(tx.from) !== getAddress(created.creator)) {
+        throw new Error("The transaction sender is not the token creator. Nothing was saved.");
+      }
+      const decodedCall = decodeFunctionData({ abi: tokenFactoryAbi, data: tx.input });
+      if (decodedCall.functionName !== "createCompanionToken") {
+        throw new Error(
+          `The transaction called ${decodedCall.functionName}, not createCompanionToken. Nothing was saved.`,
+        );
+      }
+      const [callPassportId, , , callSupply, callAllocation] = decodedCall.args as unknown as [
+        bigint,
+        string,
+        string,
+        bigint,
+        bigint,
+      ];
+      if (
+        callPassportId !== passportTokenId ||
+        callSupply !== submittedSupply ||
+        callAllocation !== submittedAllocation
+      ) {
+        throw new Error(
+          "The transaction calldata does not match the token you configured. Nothing was saved.",
+        );
+      }
     }
 
     const { data: confirmed, error } = await db
@@ -891,7 +1409,8 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
         implementation_address: config.implementation.toLowerCase(),
         bytecode_hash: keccak256(bytecode),
         tx_hash: created.txHash ?? token.tx_hash,
-        block_number: created.blockNumber !== null ? Number(created.blockNumber) : token.block_number,
+        block_number:
+          created.blockNumber !== null ? Number(created.blockNumber) : token.block_number,
         confirmed_at: now,
         last_reconciled_at: now,
         failure_reason: null,
@@ -902,7 +1421,11 @@ export const reconcileCompanionToken = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
 
     await db.from("listings").update({ companion_token: true }).eq("id", token.listing_id);
-    return { outcome: "confirmed" as const, token: confirmed, message: "Companion token verified and permanently paired." };
+    return {
+      outcome: "confirmed" as const,
+      token: confirmed,
+      message: "Companion token verified and permanently paired.",
+    };
   });
 
 export const resetStalledToken = createServerFn({ method: "POST" })
@@ -921,16 +1444,35 @@ export const resetStalledToken = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     if (!token) throw new Error("No companion token record for this listing.");
-    if (token.status !== "submitted" && token.status !== "failed") throw new Error("Only a pending or failed deployment can be reset.");
-    const { data: passport } = await db.from("item_passports").select("token_id").eq("id", token.passport_id).single();
+    if (token.status !== "submitted" && token.status !== "failed")
+      throw new Error("Only a pending or failed deployment can be reset.");
+    const { data: passport } = await db
+      .from("item_passports")
+      .select("token_id")
+      .eq("id", token.passport_id)
+      .single();
     if (!passport?.token_id) throw new Error("The passport is not confirmed.");
-    const onChain = await client.readContract({ address: config.factory, abi: tokenFactoryAbi, functionName: "tokenForPassport", args: [BigInt(String(passport.token_id))] });
-    if (onChain !== zeroAddress) throw new Error("A token already exists on-chain for this passport. Use “Check the pending deployment” to recover it.");
+    const onChain = await client.readContract({
+      address: config.factory,
+      abi: tokenFactoryAbi,
+      functionName: "tokenForPassport",
+      args: [BigInt(String(passport.token_id))],
+    });
+    if (onChain !== zeroAddress)
+      throw new Error(
+        "A token already exists on-chain for this passport. Use “Check the pending deployment” to recover it.",
+      );
     if (token.tx_hash && isTxHash(token.tx_hash)) {
       const receipt = await client.getTransactionReceipt({ hash: token.tx_hash }).catch(() => null);
-      if (receipt?.status === "success") throw new Error("That transaction was mined. Use “Check the pending deployment” to recover it.");
-      const ageMs = token.submitted_at ? Date.now() - new Date(token.submitted_at).getTime() : Number.POSITIVE_INFINITY;
-      if (!receipt && ageMs < 5 * 60_000) throw new Error("Give the transaction at least five minutes before resetting.");
+      if (receipt?.status === "success")
+        throw new Error(
+          "That transaction was mined. Use “Check the pending deployment” to recover it.",
+        );
+      const ageMs = token.submitted_at
+        ? Date.now() - new Date(token.submitted_at).getTime()
+        : Number.POSITIVE_INFINITY;
+      if (!receipt && ageMs < 5 * 60_000)
+        throw new Error("Give the transaction at least five minutes before resetting.");
     }
     const { error } = await db.from("companion_tokens").delete().eq("id", token.id);
     if (error) throw new Error(error.message);

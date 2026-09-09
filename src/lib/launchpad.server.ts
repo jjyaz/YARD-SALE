@@ -2,10 +2,29 @@
  * Server-only helpers for the launchpad: live deployment validation, IPFS pinning,
  * and the shared RPC client. Never imported by browser code (blocked by filename).
  */
-import { createPublicClient, getAddress, http, keccak256, toBytes, zeroAddress, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  getAddress,
+  http,
+  keccak256,
+  toBytes,
+  zeroAddress,
+  type PublicClient,
+} from "viem";
 
-import { isHexAddress, publicEnv, ROBINHOOD_MAINNET_ID, ROBINHOOD_TESTNET_ID, isSupportedChainId } from "@/config/env";
-import { assetRegistryAbi, companionTokenAbi, ERC721_INTERFACE_ID, tokenFactoryAbi } from "@/lib/abi";
+import {
+  isHexAddress,
+  publicEnv,
+  ROBINHOOD_MAINNET_ID,
+  ROBINHOOD_TESTNET_ID,
+  isSupportedChainId,
+} from "@/config/env";
+import {
+  assetRegistryAbi,
+  companionTokenAbi,
+  ERC721_INTERFACE_ID,
+  tokenFactoryAbi,
+} from "@/lib/abi";
 import { chainById, uniswapMainnet, UNISWAP_FEE_TIER, UNISWAP_TICK_SPACING } from "@/lib/chain";
 import { nonfungiblePositionManagerAbi, uniswapV3FactoryAbi, weth9Abi } from "@/lib/uniswap-abi";
 
@@ -43,7 +62,10 @@ const ROLE = {
 
 export function rpcClient(chainId: number = publicEnv.activeChainId): PublicClient {
   const chain = chainById(chainId);
-  return createPublicClient({ chain, transport: http(chain.rpcUrls.default.http[0], { timeout: 20_000 }) });
+  return createPublicClient({
+    chain,
+    transport: http(chain.rpcUrls.default.http[0], { timeout: 20_000 }),
+  });
 }
 
 const cache = new Map<string, { at: number; value: DeploymentHealth }>();
@@ -53,7 +75,9 @@ const CACHE_MS = 30_000;
  * Validates the configured registry/factory against live chain state.
  * Every failure names the exact missing or wrong configuration.
  */
-export async function verifyDeployment(options: { force?: boolean } = {}): Promise<DeploymentHealth> {
+export async function verifyDeployment(
+  options: { force?: boolean } = {},
+): Promise<DeploymentHealth> {
   const chainId = publicEnv.activeChainId;
   const chain = chainById(chainId);
   const registryEnv = publicEnv.assetRegistryAddress;
@@ -63,8 +87,13 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
   if (!options.force && hit && Date.now() - hit.at < CACHE_MS) return hit.value;
 
   const checks: HealthCheck[] = [];
-  const push = (key: string, label: string, ok: boolean, detail: string, severity: HealthCheck["severity"] = "blocker") =>
-    checks.push({ key, label, ok, detail, severity });
+  const push = (
+    key: string,
+    label: string,
+    ok: boolean,
+    detail: string,
+    severity: HealthCheck["severity"] = "blocker",
+  ) => checks.push({ key, label, ok, detail, severity });
 
   const base: Omit<DeploymentHealth, "ready" | "checks" | "checkedAt"> = {
     chainId,
@@ -92,7 +121,12 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
 
   // --- configuration -------------------------------------------------------
   if (!isSupportedChainId(chainId)) {
-    push("chain.supported", "Supported chain", false, `Chain ${chainId} is not supported. Use 4663 (mainnet) or 46630 (testnet).`);
+    push(
+      "chain.supported",
+      "Supported chain",
+      false,
+      `Chain ${chainId} is not supported. Use 4663 (mainnet) or 46630 (testnet).`,
+    );
     return finish();
   }
   if (base.mainnetRequested && !publicEnv.enableMainnet) {
@@ -109,7 +143,9 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
       "env.registry",
       "Registry address",
       false,
-      registryEnv ? `VITE_ASSET_REGISTRY_ADDRESS is not a valid address (${registryEnv}).` : "VITE_ASSET_REGISTRY_ADDRESS is not set.",
+      registryEnv
+        ? `VITE_ASSET_REGISTRY_ADDRESS is not a valid address (${registryEnv}).`
+        : "VITE_ASSET_REGISTRY_ADDRESS is not set.",
     );
   } else push("env.registry", "Registry address", true, getAddress(registryEnv));
   if (!isHexAddress(factoryEnv)) {
@@ -117,7 +153,9 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
       "env.factory",
       "Factory address",
       false,
-      factoryEnv ? `VITE_TOKEN_FACTORY_ADDRESS is not a valid address (${factoryEnv}).` : "VITE_TOKEN_FACTORY_ADDRESS is not set.",
+      factoryEnv
+        ? `VITE_TOKEN_FACTORY_ADDRESS is not a valid address (${factoryEnv}).`
+        : "VITE_TOKEN_FACTORY_ADDRESS is not set.",
     );
   } else push("env.factory", "Factory address", true, getAddress(factoryEnv));
   if (!isHexAddress(registryEnv) || !isHexAddress(factoryEnv)) return finish();
@@ -125,7 +163,12 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
   const registry = getAddress(registryEnv);
   const factory = getAddress(factoryEnv);
   if (registry === factory) {
-    push("env.distinct", "Distinct contracts", false, "Registry and factory are the same address. That is not a valid deployment.");
+    push(
+      "env.distinct",
+      "Distinct contracts",
+      false,
+      "Registry and factory are the same address. That is not a valid deployment.",
+    );
     return finish();
   }
   push("env.distinct", "Distinct contracts", true, "Registry and factory are different contracts.");
@@ -136,7 +179,12 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
   try {
     liveChainId = await client.getChainId();
   } catch (error) {
-    push("rpc.reachable", "RPC reachable", false, `Could not reach ${base.rpcUrl}: ${(error as Error).message}`);
+    push(
+      "rpc.reachable",
+      "RPC reachable",
+      false,
+      `Could not reach ${base.rpcUrl}: ${(error as Error).message}`,
+    );
     return finish();
   }
   if (liveChainId !== chainId) {
@@ -145,7 +193,9 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
       "RPC chain id",
       false,
       `The RPC at ${base.rpcUrl} reports chain ${liveChainId}, expected ${chainId}. Fix ${
-        chainId === ROBINHOOD_MAINNET_ID ? "VITE_ROBINHOOD_MAINNET_RPC_URL" : "VITE_ROBINHOOD_TESTNET_RPC_URL"
+        chainId === ROBINHOOD_MAINNET_ID
+          ? "VITE_ROBINHOOD_MAINNET_RPC_URL"
+          : "VITE_ROBINHOOD_TESTNET_RPC_URL"
       }.`,
     );
     return finish();
@@ -162,22 +212,39 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
     "registry.code",
     "Registry bytecode",
     hasCode(registryCode),
-    hasCode(registryCode) ? `${(registryCode!.length - 2) / 2} bytes` : `No contract code at ${registry} on chain ${chainId}. Wrong address or wrong network.`,
+    hasCode(registryCode)
+      ? `${(registryCode!.length - 2) / 2} bytes`
+      : `No contract code at ${registry} on chain ${chainId}. Wrong address or wrong network.`,
   );
   push(
     "factory.code",
     "Factory bytecode",
     hasCode(factoryCode),
-    hasCode(factoryCode) ? `${(factoryCode!.length - 2) / 2} bytes` : `No contract code at ${factory} on chain ${chainId}. Wrong address or wrong network.`,
+    hasCode(factoryCode)
+      ? `${(factoryCode!.length - 2) / 2} bytes`
+      : `No contract code at ${factory} on chain ${chainId}. Wrong address or wrong network.`,
   );
   if (!hasCode(registryCode) || !hasCode(factoryCode)) return finish();
 
   // --- interfaces ----------------------------------------------------------
   try {
     const [isErc721, pairingRole, totalMinted, registryPaused] = await Promise.all([
-      client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "supportsInterface", args: [ERC721_INTERFACE_ID] }),
-      client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "PAIRING_ROLE" }),
-      client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "totalMinted" }),
+      client.readContract({
+        address: registry,
+        abi: assetRegistryAbi,
+        functionName: "supportsInterface",
+        args: [ERC721_INTERFACE_ID],
+      }),
+      client.readContract({
+        address: registry,
+        abi: assetRegistryAbi,
+        functionName: "PAIRING_ROLE",
+      }),
+      client.readContract({
+        address: registry,
+        abi: assetRegistryAbi,
+        functionName: "totalMinted",
+      }),
       client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "paused" }),
     ]);
     base.totalMinted = totalMinted.toString();
@@ -186,11 +253,25 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
       "registry.interface",
       "Registry interface",
       ok,
-      ok ? `ERC-721 + YardSaleAssetRegistry roles, ${totalMinted.toString()} passports minted` : "The contract at the registry address does not expose the YardSaleAssetRegistry interface.",
+      ok
+        ? `ERC-721 + YardSaleAssetRegistry roles, ${totalMinted.toString()} passports minted`
+        : "The contract at the registry address does not expose the YardSaleAssetRegistry interface.",
     );
-    push("registry.paused", "Registry not paused", !registryPaused, registryPaused ? "The registry is paused by its administrator. Minting is disabled until it is unpaused." : "Active");
+    push(
+      "registry.paused",
+      "Registry not paused",
+      !registryPaused,
+      registryPaused
+        ? "The registry is paused by its administrator. Minting is disabled until it is unpaused."
+        : "Active",
+    );
   } catch (error) {
-    push("registry.interface", "Registry interface", false, `Registry calls reverted: ${(error as Error).message.split("\n")[0]}`);
+    push(
+      "registry.interface",
+      "Registry interface",
+      false,
+      `Registry calls reverted: ${(error as Error).message.split("\n")[0]}`,
+    );
     return finish();
   }
 
@@ -199,7 +280,11 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
     const [pauserRole, linkedRegistry, impl, treasury, factoryPaused] = await Promise.all([
       client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "PAUSER_ROLE" }),
       client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "registry" }),
-      client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "implementation" }),
+      client.readContract({
+        address: factory,
+        abi: tokenFactoryAbi,
+        functionName: "implementation",
+      }),
       client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "treasury" }),
       client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "paused" }),
     ]);
@@ -207,45 +292,110 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
     base.implementation = implementation;
     base.treasury = getAddress(treasury);
     const ok = pauserRole.toLowerCase() === ROLE.pauser.toLowerCase();
-    push("factory.interface", "Factory interface", ok, ok ? "YardTokenFactory roles and pointers readable" : "The contract at the factory address does not expose the YardTokenFactory interface.");
+    push(
+      "factory.interface",
+      "Factory interface",
+      ok,
+      ok
+        ? "YardTokenFactory roles and pointers readable"
+        : "The contract at the factory address does not expose the YardTokenFactory interface.",
+    );
     push(
       "link.registry",
       "Factory → registry pointer",
       getAddress(linkedRegistry) === registry,
-      getAddress(linkedRegistry) === registry ? "factory.registry() matches VITE_ASSET_REGISTRY_ADDRESS" : `factory.registry() is ${getAddress(linkedRegistry)}, not ${registry}. These contracts were not deployed together.`,
+      getAddress(linkedRegistry) === registry
+        ? "factory.registry() matches VITE_ASSET_REGISTRY_ADDRESS"
+        : `factory.registry() is ${getAddress(linkedRegistry)}, not ${registry}. These contracts were not deployed together.`,
     );
-    push("factory.paused", "Factory not paused", !factoryPaused, factoryPaused ? "The factory is paused by its administrator. Token launches are disabled until it is unpaused." : "Active");
-    push("factory.treasury", "Treasury address", base.treasury !== zeroAddress, base.treasury !== zeroAddress ? base.treasury : "Treasury is the zero address.");
+    push(
+      "factory.paused",
+      "Factory not paused",
+      !factoryPaused,
+      factoryPaused
+        ? "The factory is paused by its administrator. Token launches are disabled until it is unpaused."
+        : "Active",
+    );
+    push(
+      "factory.treasury",
+      "Treasury address",
+      base.treasury !== zeroAddress,
+      base.treasury !== zeroAddress ? base.treasury : "Treasury is the zero address.",
+    );
   } catch (error) {
-    push("factory.interface", "Factory interface", false, `Factory calls reverted: ${(error as Error).message.split("\n")[0]}`);
+    push(
+      "factory.interface",
+      "Factory interface",
+      false,
+      `Factory calls reverted: ${(error as Error).message.split("\n")[0]}`,
+    );
     return finish();
   }
 
   // --- registry ↔ factory relationship + implementation --------------------
   try {
     const [pairingGranted, implCode] = await Promise.all([
-      client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "hasRole", args: [ROLE.pairing, factory] }),
+      client.readContract({
+        address: registry,
+        abi: assetRegistryAbi,
+        functionName: "hasRole",
+        args: [ROLE.pairing, factory],
+      }),
       client.getCode({ address: implementation }),
     ]);
     push(
       "link.pairing",
       "Factory holds PAIRING_ROLE",
       pairingGranted,
-      pairingGranted ? "registry.hasRole(PAIRING_ROLE, factory) = true" : "The registry has not granted PAIRING_ROLE to the factory. Token pairing would revert.",
+      pairingGranted
+        ? "registry.hasRole(PAIRING_ROLE, factory) = true"
+        : "The registry has not granted PAIRING_ROLE to the factory. Token pairing would revert.",
     );
     const implOk = hasCode(implCode) && implementation !== registry && implementation !== factory;
-    push("impl.code", "Token implementation bytecode", implOk, implOk ? `${implementation} (${(implCode!.length - 2) / 2} bytes)` : "factory.implementation() has no code or collides with another contract.");
+    push(
+      "impl.code",
+      "Token implementation bytecode",
+      implOk,
+      implOk
+        ? `${implementation} (${(implCode!.length - 2) / 2} bytes)`
+        : "factory.implementation() has no code or collides with another contract.",
+    );
     if (implOk) {
       const [implCreator, implSupply, implFactory] = await Promise.all([
-        client.readContract({ address: implementation, abi: companionTokenAbi, functionName: "creator" }),
-        client.readContract({ address: implementation, abi: companionTokenAbi, functionName: "totalSupply" }),
-        client.readContract({ address: implementation, abi: companionTokenAbi, functionName: "factory" }),
+        client.readContract({
+          address: implementation,
+          abi: companionTokenAbi,
+          functionName: "creator",
+        }),
+        client.readContract({
+          address: implementation,
+          abi: companionTokenAbi,
+          functionName: "totalSupply",
+        }),
+        client.readContract({
+          address: implementation,
+          abi: companionTokenAbi,
+          functionName: "factory",
+        }),
       ]);
-      const locked = implCreator === zeroAddress && implSupply === 0n && implFactory === zeroAddress;
-      push("impl.locked", "Implementation never initialised", locked, locked ? "creator = 0x0, totalSupply = 0, factory = 0x0" : "The implementation contract has been initialised. It must be a bare, locked template.");
+      const locked =
+        implCreator === zeroAddress && implSupply === 0n && implFactory === zeroAddress;
+      push(
+        "impl.locked",
+        "Implementation never initialised",
+        locked,
+        locked
+          ? "creator = 0x0, totalSupply = 0, factory = 0x0"
+          : "The implementation contract has been initialised. It must be a bare, locked template.",
+      );
     }
   } catch (error) {
-    push("link.pairing", "Factory holds PAIRING_ROLE", false, `Relationship check failed: ${(error as Error).message.split("\n")[0]}`);
+    push(
+      "link.pairing",
+      "Factory holds PAIRING_ROLE",
+      false,
+      `Relationship check failed: ${(error as Error).message.split("\n")[0]}`,
+    );
   }
 
   // --- administrator -------------------------------------------------------
@@ -253,14 +403,26 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
   if (isHexAddress(expectedAdmin)) {
     const admin = getAddress(expectedAdmin);
     const [regAdmin, facAdmin] = await Promise.all([
-      client.readContract({ address: registry, abi: assetRegistryAbi, functionName: "hasRole", args: [ROLE.admin, admin] }),
-      client.readContract({ address: factory, abi: tokenFactoryAbi, functionName: "hasRole", args: [ROLE.admin, admin] }),
+      client.readContract({
+        address: registry,
+        abi: assetRegistryAbi,
+        functionName: "hasRole",
+        args: [ROLE.admin, admin],
+      }),
+      client.readContract({
+        address: factory,
+        abi: tokenFactoryAbi,
+        functionName: "hasRole",
+        args: [ROLE.admin, admin],
+      }),
     ]);
     push(
       "admin.roles",
       "Expected administrator",
       regAdmin && facAdmin,
-      regAdmin && facAdmin ? `${admin} holds DEFAULT_ADMIN_ROLE on both contracts` : `${admin} is missing DEFAULT_ADMIN_ROLE on ${!regAdmin ? "the registry" : ""}${!regAdmin && !facAdmin ? " and " : ""}${!facAdmin ? "the factory" : ""}.`,
+      regAdmin && facAdmin
+        ? `${admin} holds DEFAULT_ADMIN_ROLE on both contracts`
+        : `${admin} is missing DEFAULT_ADMIN_ROLE on ${!regAdmin ? "the registry" : ""}${!regAdmin && !facAdmin ? " and " : ""}${!facAdmin ? "the factory" : ""}.`,
     );
   } else {
     const onMainnet = chainId === ROBINHOOD_MAINNET_ID;
@@ -272,6 +434,46 @@ export async function verifyDeployment(options: { force?: boolean } = {}): Promi
         ? "VITE_EXPECTED_ADMIN_ADDRESS is not set. On mainnet the administrator role must be verified before writes are enabled."
         : "VITE_EXPECTED_ADMIN_ADDRESS is not set, so the administrator role was not verified (optional on testnet).",
       onMainnet ? "blocker" : "warning",
+    );
+  }
+
+  // --- platform mint signer ------------------------------------------------
+  // Passports can only be minted with an EIP-712 voucher signed by an address holding
+  // SIGNER_ROLE. Without it, nobody can mint — and nobody can front-run someone else's listing.
+  try {
+    const { platformSignerAddress, signerStatus } = await import("@/lib/passport-voucher.server");
+    const status = signerStatus();
+    if (!status.configured) {
+      push(
+        "signer.configured",
+        "Platform mint signer",
+        false,
+        `${status.missing} is not set. Item Passport minting requires a platform-signed authorisation, so minting stays disabled until the signing key is configured.`,
+      );
+    } else {
+      const signer = await platformSignerAddress();
+      const signerRole = keccak256(toBytes("SIGNER_ROLE"));
+      const granted = await client.readContract({
+        address: registry,
+        abi: assetRegistryAbi,
+        functionName: "hasRole",
+        args: [signerRole, signer],
+      });
+      push(
+        "signer.configured",
+        "Platform mint signer",
+        granted,
+        granted
+          ? `${signer} holds SIGNER_ROLE on the registry`
+          : `${signer} does not hold SIGNER_ROLE on the registry. The administrator must grant it before any passport can be minted.`,
+      );
+    }
+  } catch (error) {
+    push(
+      "signer.configured",
+      "Platform mint signer",
+      false,
+      `Signer check failed: ${(error as Error).message.split("\n")[0]}`,
     );
   }
 
@@ -300,9 +502,15 @@ export type PinResult =
   | { pinned: true; cid: string; provider: "pinata"; verifiedBy: "cid" | "gateway" }
   | { pinned: false; cid: null; missing: string; provider: null };
 
-export function ipfsPinningStatus(): { configured: boolean; missing: string | null; provider: string | null } {
+export function ipfsPinningStatus(): {
+  configured: boolean;
+  missing: string | null;
+  provider: string | null;
+} {
   const jwt = process.env["PINATA_JWT"];
-  return jwt ? { configured: true, missing: null, provider: "pinata" } : { configured: false, missing: "PINATA_JWT", provider: null };
+  return jwt
+    ? { configured: true, missing: null, provider: "pinata" }
+    : { configured: false, missing: "PINATA_JWT", provider: null };
 }
 
 const DEFAULT_IPFS_READ_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
@@ -332,7 +540,9 @@ export async function pinJsonToIpfs(canonical: string, name: string): Promise<Pi
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`IPFS pinning failed (${response.status}): ${text.slice(0, 200) || response.statusText}`);
+    throw new Error(
+      `IPFS pinning failed (${response.status}): ${text.slice(0, 200) || response.statusText}`,
+    );
   }
   const json = (await response.json()) as { IpfsHash?: string };
   const cid = json.IpfsHash?.trim();
@@ -341,11 +551,17 @@ export async function pinJsonToIpfs(canonical: string, name: string): Promise<Pi
 
   // Different chunking/codec (e.g. dag-pb wrapped) can legitimately produce another CID.
   // Only accept it after reading the bytes back and confirming they are identical.
-  const gateway = (process.env["IPFS_READ_GATEWAY"] ?? DEFAULT_IPFS_READ_GATEWAY).replace(/\/?$/, "/");
+  const gateway = (process.env["IPFS_READ_GATEWAY"] ?? DEFAULT_IPFS_READ_GATEWAY).replace(
+    /\/?$/,
+    "/",
+  );
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
-    const read = await fetch(`${gateway}${cid}`, { signal: controller.signal, headers: { Accept: "application/json, */*" } });
+    const read = await fetch(`${gateway}${cid}`, {
+      signal: controller.signal,
+      headers: { Accept: "application/json, */*" },
+    });
     if (!read.ok) throw new Error(`gateway responded ${read.status}`);
     const served = new Uint8Array(await read.arrayBuffer());
     const identical = served.length === bytes.length && served.every((b, i) => b === bytes[i]);
@@ -378,7 +594,8 @@ export type LiquidityInfra = {
 /** Verifies the official Uniswap v3 deployment on Robinhood Chain mainnet before any liquidity step. */
 export async function verifyLiquidityInfra(): Promise<LiquidityInfra> {
   const checks: HealthCheck[] = [];
-  const push = (key: string, label: string, ok: boolean, detail: string) => checks.push({ key, label, ok, detail, severity: "blocker" });
+  const push = (key: string, label: string, ok: boolean, detail: string) =>
+    checks.push({ key, label, ok, detail, severity: "blocker" });
   const result: LiquidityInfra = {
     chainId: publicEnv.activeChainId,
     available: false,
@@ -409,7 +626,12 @@ export async function verifyLiquidityInfra(): Promise<LiquidityInfra> {
   const client = rpcClient(ROBINHOOD_MAINNET_ID);
   try {
     const live = await client.getChainId();
-    push("rpc.chain", "RPC chain id", live === ROBINHOOD_MAINNET_ID, live === ROBINHOOD_MAINNET_ID ? "4663" : `RPC reports ${live}, expected 4663.`);
+    push(
+      "rpc.chain",
+      "RPC chain id",
+      live === ROBINHOOD_MAINNET_ID,
+      live === ROBINHOOD_MAINNET_ID ? "4663" : `RPC reports ${live}, expected 4663.`,
+    );
     if (live !== ROBINHOOD_MAINNET_ID) return result;
 
     const [factoryCode, pmCode, wethCode] = await Promise.all([
@@ -418,22 +640,80 @@ export async function verifyLiquidityInfra(): Promise<LiquidityInfra> {
       client.getCode({ address: result.weth as `0x${string}` }),
     ]);
     const hasCode = (c?: string) => Boolean(c && c !== "0x");
-    push("factory.code", "UniswapV3Factory bytecode", hasCode(factoryCode), hasCode(factoryCode) ? result.factory : `No code at ${result.factory}.`);
-    push("pm.code", "NonfungiblePositionManager bytecode", hasCode(pmCode), hasCode(pmCode) ? result.positionManager : `No code at ${result.positionManager}.`);
-    push("weth.code", "WETH9 bytecode", hasCode(wethCode), hasCode(wethCode) ? result.weth : `No code at ${result.weth}.`);
+    push(
+      "factory.code",
+      "UniswapV3Factory bytecode",
+      hasCode(factoryCode),
+      hasCode(factoryCode) ? result.factory : `No code at ${result.factory}.`,
+    );
+    push(
+      "pm.code",
+      "NonfungiblePositionManager bytecode",
+      hasCode(pmCode),
+      hasCode(pmCode) ? result.positionManager : `No code at ${result.positionManager}.`,
+    );
+    push(
+      "weth.code",
+      "WETH9 bytecode",
+      hasCode(wethCode),
+      hasCode(wethCode) ? result.weth : `No code at ${result.weth}.`,
+    );
     if (!hasCode(factoryCode) || !hasCode(pmCode) || !hasCode(wethCode)) return result;
 
     const [pmFactory, pmWeth, spacing, wethSymbol] = await Promise.all([
-      client.readContract({ address: result.positionManager as `0x${string}`, abi: nonfungiblePositionManagerAbi, functionName: "factory" }),
-      client.readContract({ address: result.positionManager as `0x${string}`, abi: nonfungiblePositionManagerAbi, functionName: "WETH9" }),
-      client.readContract({ address: result.factory as `0x${string}`, abi: uniswapV3FactoryAbi, functionName: "feeAmountTickSpacing", args: [UNISWAP_FEE_TIER] }),
-      client.readContract({ address: result.weth as `0x${string}`, abi: weth9Abi, functionName: "symbol" }),
+      client.readContract({
+        address: result.positionManager as `0x${string}`,
+        abi: nonfungiblePositionManagerAbi,
+        functionName: "factory",
+      }),
+      client.readContract({
+        address: result.positionManager as `0x${string}`,
+        abi: nonfungiblePositionManagerAbi,
+        functionName: "WETH9",
+      }),
+      client.readContract({
+        address: result.factory as `0x${string}`,
+        abi: uniswapV3FactoryAbi,
+        functionName: "feeAmountTickSpacing",
+        args: [UNISWAP_FEE_TIER],
+      }),
+      client.readContract({
+        address: result.weth as `0x${string}`,
+        abi: weth9Abi,
+        functionName: "symbol",
+      }),
     ]);
-    push("pm.factory", "Position manager → factory", getAddress(pmFactory) === result.factory, getAddress(pmFactory) === result.factory ? "Matches the official factory" : `Position manager points at ${pmFactory}.`);
-    push("pm.weth", "Position manager → WETH9", getAddress(pmWeth) === result.weth, getAddress(pmWeth) === result.weth ? `Canonical WETH (${wethSymbol})` : `Position manager uses ${pmWeth}, not the configured WETH.`);
-    push("fee.tier", "0.3% fee tier enabled", Number(spacing) === UNISWAP_TICK_SPACING, Number(spacing) === UNISWAP_TICK_SPACING ? `Tick spacing ${spacing}` : `Fee tier ${UNISWAP_FEE_TIER} has tick spacing ${spacing}, expected ${UNISWAP_TICK_SPACING}.`);
+    push(
+      "pm.factory",
+      "Position manager → factory",
+      getAddress(pmFactory) === result.factory,
+      getAddress(pmFactory) === result.factory
+        ? "Matches the official factory"
+        : `Position manager points at ${pmFactory}.`,
+    );
+    push(
+      "pm.weth",
+      "Position manager → WETH9",
+      getAddress(pmWeth) === result.weth,
+      getAddress(pmWeth) === result.weth
+        ? `Canonical WETH (${wethSymbol})`
+        : `Position manager uses ${pmWeth}, not the configured WETH.`,
+    );
+    push(
+      "fee.tier",
+      "0.3% fee tier enabled",
+      Number(spacing) === UNISWAP_TICK_SPACING,
+      Number(spacing) === UNISWAP_TICK_SPACING
+        ? `Tick spacing ${spacing}`
+        : `Fee tier ${UNISWAP_FEE_TIER} has tick spacing ${spacing}, expected ${UNISWAP_TICK_SPACING}.`,
+    );
   } catch (error) {
-    push("rpc", "Uniswap contracts reachable", false, `Verification failed: ${(error as Error).message.split("\n")[0]}`);
+    push(
+      "rpc",
+      "Uniswap contracts reachable",
+      false,
+      `Verification failed: ${(error as Error).message.split("\n")[0]}`,
+    );
   }
 
   result.available = checks.every((c) => c.ok);

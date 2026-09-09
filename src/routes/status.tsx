@@ -29,7 +29,13 @@ export const Route = createFileRoute("/status")({
   component: StatusPage,
 });
 
-type Check = { key: string; label: string; ok: boolean; severity: "blocker" | "warning"; detail: string };
+type Check = {
+  key: string;
+  label: string;
+  ok: boolean;
+  severity: "blocker" | "warning";
+  detail: string;
+};
 
 function CheckList({ checks }: { checks: Check[] }) {
   return (
@@ -41,12 +47,23 @@ function CheckList({ checks }: { checks: Check[] }) {
           ) : check.severity === "warning" ? (
             <AlertTriangle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
           ) : (
-            <MinusCircle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+            <MinusCircle
+              aria-hidden="true"
+              className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground"
+            />
           )}
           <div>
             <p className="text-sm font-semibold">
               {check.label}{" "}
-              <span className={check.ok ? "text-grass-deep" : check.severity === "warning" ? "text-warning" : "text-muted-foreground"}>
+              <span
+                className={
+                  check.ok
+                    ? "text-grass-deep"
+                    : check.severity === "warning"
+                      ? "text-warning"
+                      : "text-muted-foreground"
+                }
+              >
                 — {check.ok ? "passed" : check.severity === "warning" ? "warning" : "blocked"}
               </span>
             </p>
@@ -61,7 +78,12 @@ function CheckList({ checks }: { checks: Check[] }) {
 function Address({ chainId, value }: { chainId: number; value: string | null }) {
   if (!value) return <span className="text-muted-foreground">not configured</span>;
   return (
-    <a className="break-all font-mono text-xs underline underline-offset-4" href={explorerAddressUrl(chainId, value)} target="_blank" rel="noreferrer">
+    <a
+      className="break-all font-mono text-xs underline underline-offset-4"
+      href={explorerAddressUrl(chainId, value)}
+      target="_blank"
+      rel="noreferrer"
+    >
       {value}
     </a>
   );
@@ -93,15 +115,20 @@ function StatusPage() {
             <section className="rounded-xl border border-border bg-card p-6">
               <h2 className="text-lg font-bold">Live deployment checks</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Read directly from the chain each time this page loads: address format, bytecode, interfaces, registry↔factory pointers, roles,
-                pause state and implementation lock.
+                Read directly from the chain each time this page loads: address format, bytecode,
+                interfaces, registry↔factory pointers, roles, pause state and implementation lock.
               </p>
               {health.isLoading ? (
                 <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Querying {activeChain.name}…
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Querying{" "}
+                  {activeChain.name}…
                 </p>
               ) : health.isError ? (
-                <p className="mt-4 text-sm text-destructive">{health.error instanceof Error ? health.error.message : "The health check failed."}</p>
+                <p className="mt-4 text-sm text-destructive">
+                  {health.error instanceof Error
+                    ? health.error.message
+                    : "The health check failed."}
+                </p>
               ) : deployment ? (
                 <>
                   <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
@@ -109,12 +136,16 @@ function StatusPage() {
                       <dt className="text-muted-foreground">Active chain</dt>
                       <dd className="font-semibold">
                         {deployment.chainName} ({deployment.chainId})
-                        {deployment.mainnetRequested && !deployment.mainnetEnabled ? " — mainnet requested but not enabled" : ""}
+                        {deployment.mainnetRequested && !deployment.mainnetEnabled
+                          ? " — mainnet requested but not enabled"
+                          : ""}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-muted-foreground">Overall</dt>
-                      <dd className={`font-semibold ${deployment.ready ? "text-grass-deep" : "text-muted-foreground"}`}>
+                      <dd
+                        className={`font-semibold ${deployment.ready ? "text-grass-deep" : "text-muted-foreground"}`}
+                      >
                         {deployment.ready ? "On-chain writes enabled" : "On-chain writes blocked"}
                       </dd>
                     </div>
@@ -178,14 +209,22 @@ function StatusPage() {
                 {checks.map((check) => (
                   <li key={check.key} className="flex items-start gap-3 py-3">
                     {check.ready ? (
-                      <CheckCircle2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-grass-deep" />
+                      <CheckCircle2
+                        aria-hidden="true"
+                        className="mt-0.5 h-5 w-5 shrink-0 text-grass-deep"
+                      />
                     ) : (
-                      <MinusCircle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                      <MinusCircle
+                        aria-hidden="true"
+                        className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground"
+                      />
                     )}
                     <div>
                       <p className="text-sm font-semibold">
                         {check.label}{" "}
-                        <span className={check.ready ? "text-grass-deep" : "text-muted-foreground"}>— {check.ready ? "configured" : "not configured"}</span>
+                        <span className={check.ready ? "text-grass-deep" : "text-muted-foreground"}>
+                          — {check.ready ? "configured" : "not configured"}
+                        </span>
                       </p>
                       <p className="text-sm text-muted-foreground">{check.detail}</p>
                     </div>
@@ -193,14 +232,24 @@ function StatusPage() {
                 ))}
                 <li className="flex items-start gap-3 py-3">
                   {ipfs?.configured ? (
-                    <CheckCircle2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-grass-deep" />
+                    <CheckCircle2
+                      aria-hidden="true"
+                      className="mt-0.5 h-5 w-5 shrink-0 text-grass-deep"
+                    />
                   ) : (
-                    <MinusCircle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                    <MinusCircle
+                      aria-hidden="true"
+                      className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground"
+                    />
                   )}
                   <div>
                     <p className="text-sm font-semibold">
                       IPFS pinning{" "}
-                      <span className={ipfs?.configured ? "text-grass-deep" : "text-muted-foreground"}>— {ipfs?.configured ? "configured" : "not configured"}</span>
+                      <span
+                        className={ipfs?.configured ? "text-grass-deep" : "text-muted-foreground"}
+                      >
+                        — {ipfs?.configured ? "configured" : "not configured"}
+                      </span>
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {ipfs?.configured
@@ -229,18 +278,45 @@ function StatusPage() {
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Explorer</dt>
-                  <dd className="mono-chain break-all">{activeChain.blockExplorers?.default.url}</dd>
+                  <dd className="mono-chain break-all">
+                    {activeChain.blockExplorers?.default.url}
+                  </dd>
                 </div>
               </dl>
             </section>
 
             <section className="rounded-xl border border-warning/40 bg-warning/5 p-6">
               <h2 className="text-lg font-bold">Unaudited beta</h2>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Item Passport minting and Companion Token launches only run when every deployment check above passes; Uniswap liquidity only
-                on mainnet with the official deployment verified. Escrow and liquidity locking are not built yet. The contracts have not been
-                independently audited. There are no simulated transactions anywhere in this app.
-              </p>
+              <dl className="mt-3 space-y-2 text-sm text-muted-foreground">
+                <div>
+                  <dt className="font-semibold text-foreground">Built and tested</dt>
+                  <dd>
+                    Item Passports (mint only with a platform-signed authorisation), fixed-supply
+                    Companion Tokens, Uniswap v3 liquidity, and a 180-day-minimum liquidity locker.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-foreground">Deployed</dt>
+                  <dd>
+                    Nothing yet. Every address above must be configured before any action is
+                    offered.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-foreground">Verified</dt>
+                  <dd>
+                    Each action is confirmed from live chain state — receipts, events, owners,
+                    hashes and contract pointers — never from a receipt alone.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-foreground">Independently audited</dt>
+                  <dd>
+                    No. Not built yet: escrow. There are no simulated transactions anywhere in this
+                    app.
+                  </dd>
+                </div>
+              </dl>
             </section>
           </aside>
         </div>

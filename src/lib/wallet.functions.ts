@@ -75,11 +75,19 @@ export const requestWalletNonce = createServerFn({ method: "POST" })
 /** Verifies the signed message server-side and binds the address to the account. */
 export const verifyWalletSignature = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { address: string; chainId: number; nonce: string; message: string; signature: string }) => {
-    if (!/^0x[a-fA-F0-9]{40}$/.test(input.address)) throw new Error("Invalid wallet address.");
-    if (!/^0x[a-fA-F0-9]+$/.test(input.signature)) throw new Error("Invalid signature.");
-    return input;
-  })
+  .inputValidator(
+    (input: {
+      address: string;
+      chainId: number;
+      nonce: string;
+      message: string;
+      signature: string;
+    }) => {
+      if (!/^0x[a-fA-F0-9]{40}$/.test(input.address)) throw new Error("Invalid wallet address.");
+      if (!/^0x[a-fA-F0-9]+$/.test(input.signature)) throw new Error("Invalid signature.");
+      return input;
+    },
+  )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { verifyMessage } = await import("viem");
@@ -95,11 +103,15 @@ export const verifyWalletSignature = createServerFn({ method: "POST" })
     if (nonceError) throw new Error(nonceError.message);
     if (!row) throw new Error("This link request is no longer valid. Start again.");
     if (row.consumed_at) throw new Error("This link request has already been used.");
-    if (new Date(row.expires_at).getTime() < Date.now()) throw new Error("This link request expired.");
-    if (row.user_id !== context.userId) throw new Error("This link request belongs to another account.");
-    if ((row.address ?? "") !== address) throw new Error("Signed address does not match the request.");
+    if (new Date(row.expires_at).getTime() < Date.now())
+      throw new Error("This link request expired.");
+    if (row.user_id !== context.userId)
+      throw new Error("This link request belongs to another account.");
+    if ((row.address ?? "") !== address)
+      throw new Error("Signed address does not match the request.");
     if (row.domain !== domain) throw new Error("Signature was issued for a different site.");
-    if (row.chain_id !== data.chainId) throw new Error("Signature was issued for a different network.");
+    if (row.chain_id !== data.chainId)
+      throw new Error("Signature was issued for a different network.");
     if (!data.message.includes(data.nonce) || !data.message.includes(domain)) {
       throw new Error("Signed message does not match the request.");
     }

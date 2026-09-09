@@ -28,7 +28,9 @@ export const publicEnv = {
   requestedChainId,
   /** The chain the app actually uses for reads and writes. Mainnet only when explicitly enabled. */
   activeChainId:
-    requestedChainId === ROBINHOOD_MAINNET_ID && enableMainnet ? ROBINHOOD_MAINNET_ID : ROBINHOOD_TESTNET_ID,
+    requestedChainId === ROBINHOOD_MAINNET_ID && enableMainnet
+      ? ROBINHOOD_MAINNET_ID
+      : ROBINHOOD_TESTNET_ID,
   defaultChainId: requestedChainId,
   enableMainnet,
   mainnetRpcUrl: str("VITE_ROBINHOOD_MAINNET_RPC_URL", "https://rpc.mainnet.chain.robinhood.com"),
@@ -46,7 +48,8 @@ export const publicEnv = {
 export const isSupportedChainId = (id: number): id is (typeof SUPPORTED_CHAIN_IDS)[number] =>
   SUPPORTED_CHAIN_IDS.includes(id as (typeof SUPPORTED_CHAIN_IDS)[number]);
 
-export const isHexAddress = (value: string): value is `0x${string}` => /^0x[a-fA-F0-9]{40}$/.test(value);
+export const isHexAddress = (value: string): value is `0x${string}` =>
+  /^0x[a-fA-F0-9]{40}$/.test(value);
 
 /** Mainnet was requested by configuration but writes are still switched off. */
 export const mainnetRequestedButDisabled = () =>
@@ -114,13 +117,16 @@ export function configChecks(): ConfigCheck[] {
       key: "escrow",
       label: "Escrow contract",
       ready: Boolean(publicEnv.escrowAddress),
-      detail: publicEnv.escrowAddress || "VITE_ESCROW_ADDRESS not set — on-chain purchases stay disabled",
+      detail:
+        publicEnv.escrowAddress || "VITE_ESCROW_ADDRESS not set — on-chain purchases stay disabled",
     },
     {
       key: "locker",
       label: "Liquidity locker",
       ready: Boolean(publicEnv.liquidityLockerAddress),
-      detail: publicEnv.liquidityLockerAddress || "VITE_LIQUIDITY_LOCKER_ADDRESS not set — liquidity locking stays disabled",
+      detail:
+        publicEnv.liquidityLockerAddress ||
+        "VITE_LIQUIDITY_LOCKER_ADDRESS not set — liquidity locking stays disabled",
     },
     {
       key: "walletconnect",

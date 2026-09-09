@@ -24,11 +24,16 @@ export function sqrtBigInt(value: bigint): bigint {
 }
 
 /** Uniswap sorts pools by token address (lowercase hex compares like uint160). */
-export function sortTokens(a: string, b: string): { token0: `0x${string}`; token1: `0x${string}`; flipped: boolean } {
+export function sortTokens(
+  a: string,
+  b: string,
+): { token0: `0x${string}`; token1: `0x${string}`; flipped: boolean } {
   const la = a.toLowerCase() as `0x${string}`;
   const lb = b.toLowerCase() as `0x${string}`;
   if (la === lb) throw new Error("Both tokens are the same address.");
-  return BigInt(la) < BigInt(lb) ? { token0: la, token1: lb, flipped: false } : { token0: lb, token1: la, flipped: true };
+  return BigInt(la) < BigInt(lb)
+    ? { token0: la, token1: lb, flipped: false }
+    : { token0: lb, token1: la, flipped: true };
 }
 
 /**
@@ -40,7 +45,9 @@ export function encodeSqrtPriceX96(amount1: bigint, amount0: bigint): bigint {
   const ratioX192 = (amount1 << 192n) / amount0;
   const sqrt = sqrtBigInt(ratioX192);
   if (sqrt < MIN_SQRT_RATIO || sqrt >= MAX_SQRT_RATIO) {
-    throw new Error("The opening ratio is outside the range Uniswap v3 can represent. Change the amounts.");
+    throw new Error(
+      "The opening ratio is outside the range Uniswap v3 can represent. Change the amounts.",
+    );
   }
   return sqrt;
 }
@@ -87,7 +94,9 @@ export function parseFixed(value: string, decimals = 18): bigint {
   const wholePart = dot === -1 ? trimmed : trimmed.slice(0, dot);
   const fractionPart = dot === -1 ? "" : trimmed.slice(dot + 1);
   if (fractionPart.length > decimals) throw new Error(`Too many decimal places (max ${decimals}).`);
-  return BigInt(wholePart) * 10n ** BigInt(decimals) + BigInt(fractionPart.padEnd(decimals, "0") || "0");
+  return (
+    BigInt(wholePart) * 10n ** BigInt(decimals) + BigInt(fractionPart.padEnd(decimals, "0") || "0")
+  );
 }
 
 export type LiquidityPlanInput = {
@@ -130,7 +139,8 @@ export function buildLiquidityPlan(input: LiquidityPlanInput): LiquidityPlan {
   if (input.tokenAmount <= 0n) throw new Error("Token amount must be greater than zero.");
   if (input.ethAmount <= 0n) throw new Error("ETH amount must be greater than zero.");
   if (input.totalSupply <= 0n) throw new Error("Total supply must be greater than zero.");
-  if (input.tokenAmount > input.totalSupply) throw new Error("Token amount exceeds the fixed total supply.");
+  if (input.tokenAmount > input.totalSupply)
+    throw new Error("Token amount exceeds the fixed total supply.");
 
   const { token0, token1, flipped } = sortTokens(input.tokenAddress, input.wethAddress);
   const tokenIsToken0 = !flipped;
@@ -159,4 +169,33 @@ export function buildLiquidityPlan(input: LiquidityPlanInput): LiquidityPlan {
     tokensPerEth: formatFixed(tokensPerEthUnits, 18, 6),
     fdvEth: formatFixed(fdvWei, 18, 6),
   };
+}
+
+/** Deviation between two sqrt prices, in basis points of the underlying price. */
+export function priceDeviationBps(a: bigint, b: bigint): number {
+  if (a <= 0n || b <= 0n) return Number.MAX_SAFE_INTEGER;
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  // price is proportional to sqrtPrice squared, so price deviation is about twice the sqrt deviation.
+  return Number(((hi - lo) * 20_000n) / lo);
+}
+
+/**
+ * Rejects a saved liquidity plan whose price reference has moved beyond the accepted slippage.
+ * The seller must review the new live price and re-confirm before approvals or minting.
+ */
+export function requireFreshQuote(
+  position: {
+    acknowledged_pool_price_x96: string | null;
+    sqrt_price_x96: string;
+    slippage_bps: number;
+  },
+  livePriceX96: bigint,
+) {
+  const reference = BigInt(position.acknowledged_pool_price_x96 ?? position.sqrt_price_x96);
+  if (priceDeviationBps(reference, livePriceX96) > position.slippage_bps) {
+    throw new Error(
+      `The live pool price (sqrtPriceX96 ${livePriceX96.toString()}) has moved beyond your ${(position.slippage_bps / 100).toFixed(2)}% ` +
+        `tolerance from the price you confirmed (${reference.toString()}). This quote is void — reset the plan and confirm the new price.`,
+    );
+  }
 }

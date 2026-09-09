@@ -36,8 +36,20 @@ export const weth9Abi = [
     inputs: [{ name: "", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
-  { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "string" }] },
-  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint8" }] },
+  {
+    type: "function",
+    name: "symbol",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+  {
+    type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
   {
     type: "event",
     name: "Deposit",
@@ -67,7 +79,13 @@ export const uniswapV3FactoryAbi = [
     inputs: [{ name: "fee", type: "uint24" }],
     outputs: [{ name: "", type: "int24" }],
   },
-  { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  {
+    type: "function",
+    name: "owner",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
   {
     type: "event",
     name: "PoolCreated",
@@ -97,11 +115,41 @@ export const uniswapV3PoolAbi = [
       { name: "unlocked", type: "bool" },
     ],
   },
-  { type: "function", name: "liquidity", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint128" }] },
-  { type: "function", name: "token0", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
-  { type: "function", name: "token1", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
-  { type: "function", name: "fee", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint24" }] },
-  { type: "function", name: "factory", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  {
+    type: "function",
+    name: "liquidity",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint128" }],
+  },
+  {
+    type: "function",
+    name: "token0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "token1",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "fee",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint24" }],
+  },
+  {
+    type: "function",
+    name: "factory",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
   {
     type: "function",
     name: "tickSpacing",
@@ -112,8 +160,20 @@ export const uniswapV3PoolAbi = [
 ] as const;
 
 export const nonfungiblePositionManagerAbi = [
-  { type: "function", name: "factory", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
-  { type: "function", name: "WETH9", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  {
+    type: "function",
+    name: "factory",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "WETH9",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
   {
     type: "function",
     name: "createAndInitializePoolIfNecessary",
@@ -200,6 +260,73 @@ export const nonfungiblePositionManagerAbi = [
       { name: "from", type: "address", indexed: true },
       { name: "to", type: "address", indexed: true },
       { name: "tokenId", type: "uint256", indexed: true },
+    ],
+  },
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "from", type: "address" },
+      { name: "to", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "data", type: "bytes" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+/** YardLiquidityLocker — non-upgradeable Uniswap V3 position lock-up. */
+export const liquidityLockerAbi = [
+  {
+    type: "function",
+    name: "positionManager",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "MIN_LOCK_DURATION",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "isLocked",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "lockInfo",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "depositor", type: "address" },
+          { name: "lockedAt", type: "uint64" },
+          { name: "unlockAt", type: "uint64" },
+          { name: "permanent", type: "bool" },
+          { name: "withdrawn", type: "bool" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "event",
+    name: "PositionLocked",
+    inputs: [
+      { name: "positionId", type: "uint256", indexed: true },
+      { name: "depositor", type: "address", indexed: true },
+      { name: "lockedAt", type: "uint64", indexed: false },
+      { name: "unlockAt", type: "uint64", indexed: false },
+      { name: "permanent", type: "bool", indexed: false },
     ],
   },
 ] as const;

@@ -8,10 +8,14 @@ export const Route = createFileRoute("/privacy")({
       { title: "Privacy Policy — YARD SALE" },
       {
         name: "description",
-        content: "What YARD SALE collects, what stays private, what is public on-chain, and your choices.",
+        content:
+          "What YARD SALE collects, what stays private, what is public on-chain, and your choices.",
       },
       { property: "og:title", content: "Privacy Policy — YARD SALE" },
-      { property: "og:description", content: "How YARD SALE handles your data and pickup details." },
+      {
+        property: "og:description",
+        content: "How YARD SALE handles your data and pickup details.",
+      },
     ],
   }),
   component: Privacy,

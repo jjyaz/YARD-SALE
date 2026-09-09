@@ -4,20 +4,34 @@ import { coverFor } from "@/lib/demo-images";
 import { approxFiat, conditionLabel, formatEth } from "@/lib/listing-meta";
 import type { PublicListing } from "@/lib/marketplace.functions";
 
-export function StatusChip({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "grass" | "warning" }) {
+export function StatusChip({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "grass" | "warning";
+}) {
   const tones = {
     neutral: "border-border bg-secondary text-foreground",
     grass: "border-grass-deep/30 bg-grass/25 text-foreground",
     warning: "border-warning/40 bg-warning/10 text-warning",
   } as const;
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tones[tone]}`}>
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tones[tone]}`}
+    >
       {children}
     </span>
   );
 }
 
-export function ListingCard({ listing, eager = false }: { listing: PublicListing; eager?: boolean }) {
+export function ListingCard({
+  listing,
+  eager = false,
+}: {
+  listing: PublicListing;
+  eager?: boolean;
+}) {
   const fiat = approxFiat(listing.price_eth, listing.is_free);
   return (
     <article className="group overflow-hidden rounded-xl border border-border bg-card transition-shadow duration-200 hover:shadow-float">
@@ -36,7 +50,9 @@ export function ListingCard({ listing, eager = false }: { listing: PublicListing
           <div className="flex flex-wrap gap-1.5">
             {listing.passport_minted ? <StatusChip tone="grass">Passport minted</StatusChip> : null}
             {listing.companion_token ? <StatusChip>Token paired</StatusChip> : null}
-            {listing.status === "reserved" ? <StatusChip tone="warning">Reserved</StatusChip> : null}
+            {listing.status === "reserved" ? (
+              <StatusChip tone="warning">Reserved</StatusChip>
+            ) : null}
             {listing.status === "redeemed" ? <StatusChip>Redeemed</StatusChip> : null}
             {listing.is_demo ? <StatusChip>Demo listing</StatusChip> : null}
           </div>
@@ -46,7 +62,9 @@ export function ListingCard({ listing, eager = false }: { listing: PublicListing
             {listing.city ? ` • ${listing.city}${listing.region ? `, ${listing.region}` : ""}` : ""}
           </p>
           <div className="flex items-baseline justify-between pt-1">
-            <p className="font-mono text-sm font-semibold">{formatEth(listing.price_eth, listing.is_free)}</p>
+            <p className="font-mono text-sm font-semibold">
+              {formatEth(listing.price_eth, listing.is_free)}
+            </p>
             {fiat ? <p className="text-xs text-muted-foreground">{fiat}</p> : null}
           </div>
           {listing.seller_handle ? (

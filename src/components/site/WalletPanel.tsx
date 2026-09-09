@@ -111,7 +111,12 @@ export function WalletPanel() {
                 >
                   Explorer
                 </a>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void unlink(wallet.address)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void unlink(wallet.address)}
+                >
                   Unlink
                 </Button>
               </div>

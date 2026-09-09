@@ -4,7 +4,8 @@ import { createServerFn } from "@tanstack/react-start";
 export const getDeploymentHealth = createServerFn({ method: "GET" })
   .inputValidator((input?: { force?: boolean }) => input ?? {})
   .handler(async ({ data }) => {
-    const { verifyDeployment, verifyLiquidityInfra, ipfsPinningStatus } = await import("@/lib/launchpad.server");
+    const { verifyDeployment, verifyLiquidityInfra, ipfsPinningStatus } =
+      await import("@/lib/launchpad.server");
     const [deployment, liquidity] = await Promise.all([
       verifyDeployment(data.force ? { force: true } : {}),
       verifyLiquidityInfra(),

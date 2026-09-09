@@ -5,11 +5,28 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import { isHexAddress } from "@/config/env";
 import { companionTokenAbi } from "@/lib/abi";
-import { nonfungiblePositionManagerAbi, uniswapV3FactoryAbi, uniswapV3PoolAbi, weth9Abi } from "@/lib/uniswap-abi";
-import { buildLiquidityPlan, parseFixed, priceFromSqrtPriceX96 } from "@/lib/uniswap-math";
+import {
+  liquidityLockerAbi,
+  nonfungiblePositionManagerAbi,
+  uniswapV3FactoryAbi,
+  uniswapV3PoolAbi,
+  weth9Abi,
+} from "@/lib/uniswap-abi";
+import {
+  buildLiquidityPlan,
+  parseFixed,
+  priceDeviationBps,
+  priceFromSqrtPriceX96,
+  requireFreshQuote,
+} from "@/lib/uniswap-math";
 
 type LiquidityUpdate = Database["public"]["Tables"]["liquidity_positions"]["Update"];
-type IncreaseLiquidityArgs = { tokenId: bigint; liquidity: bigint; amount0: bigint; amount1: bigint };
+type IncreaseLiquidityArgs = {
+  tokenId: bigint;
+  liquidity: bigint;
+  amount0: bigint;
+  amount1: bigint;
+};
 
 function findIncreaseLiquidity(
   logs: readonly Log[],
@@ -20,8 +37,13 @@ function findIncreaseLiquidity(
   for (const log of logs) {
     if (checksum(log.address) !== positionManager) continue;
     try {
-      const decoded = decode({ abi: nonfungiblePositionManagerAbi, data: log.data, topics: log.topics });
-      if (decoded.eventName === "IncreaseLiquidity") return decoded.args as unknown as IncreaseLiquidityArgs;
+      const decoded = decode({
+        abi: nonfungiblePositionManagerAbi,
+        data: log.data,
+        topics: log.topics,
+      });
+      if (decoded.eventName === "IncreaseLiquidity")
+        return decoded.args as unknown as IncreaseLiquidityArgs;
     } catch {
       continue;
     }
@@ -35,9 +57,24 @@ function findIncreaseLiquidity(
  * verifies receipts against live chain state, and records what was proven.
  */
 
-export type LiquidityStep = "wrap" | "approve_weth" | "approve_token" | "create_pool" | "mint" | "done";
-const STEP_ORDER: LiquidityStep[] = ["wrap", "approve_weth", "approve_token", "create_pool", "mint", "done"];
-const STEP_TX_COLUMN: Record<Exclude<LiquidityStep, "done">, "wrap_tx_hash" | "weth_approve_tx_hash" | "token_approve_tx_hash" | "pool_tx_hash" | "mint_tx_hash"> = {
+export type LiquidityStep =
+  "wrap" | "approve_weth" | "approve_token" | "create_pool" | "mint" | "done";
+const STEP_ORDER: LiquidityStep[] = [
+  "wrap",
+  "approve_weth",
+  "approve_token",
+  "create_pool",
+  "mint",
+  "done",
+];
+const STEP_TX_COLUMN: Record<
+  Exclude<LiquidityStep, "done">,
+  | "wrap_tx_hash"
+  | "weth_approve_tx_hash"
+  | "token_approve_tx_hash"
+  | "pool_tx_hash"
+  | "mint_tx_hash"
+> = {
   wrap: "wrap_tx_hash",
   approve_weth: "weth_approve_tx_hash",
   approve_token: "token_approve_tx_hash",
@@ -59,8 +96,50 @@ function isTxHash(value: string): value is `0x${string}` {
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
-async function loadVerifiedToken(db: Awaited<ReturnType<typeof admin>>, userId: string, listingId: string) {
-  const { data: token } = await db.from("companion_tokens").select("*").eq("listing_id", listingId).eq("user_id", userId).maybeSingle();
+/**
+ * Reads the live pool for a pair, if one exists. An initialised pool means the seller's chosen
+ * ratio does NOT set the price, so any quote derived from it is stale until re-confirmed.
+ */
+export async function livePoolState(
+  client: Awaited<ReturnType<(typeof import("@/lib/launchpad.server"))["rpcClient"]>>,
+  factory: string,
+  token0: string,
+  token1: string,
+  feeTier: number,
+) {
+  const { getAddress } = await import("viem");
+  const { uniswapV3FactoryAbi, uniswapV3PoolAbi } = await import("@/lib/uniswap-abi");
+  const pool = await client.readContract({
+    address: getAddress(factory),
+    abi: uniswapV3FactoryAbi,
+    functionName: "getPool",
+    args: [getAddress(token0), getAddress(token1), feeTier],
+  });
+  if (pool === ZERO)
+    return { address: null, initialized: false, sqrtPriceX96: null as bigint | null };
+  const slot0 = await client.readContract({
+    address: getAddress(pool),
+    abi: uniswapV3PoolAbi,
+    functionName: "slot0",
+  });
+  return {
+    address: getAddress(pool),
+    initialized: slot0[0] !== 0n,
+    sqrtPriceX96: slot0[0] === 0n ? null : slot0[0],
+  };
+}
+
+async function loadVerifiedToken(
+  db: Awaited<ReturnType<typeof admin>>,
+  userId: string,
+  listingId: string,
+) {
+  const { data: token } = await db
+    .from("companion_tokens")
+    .select("*")
+    .eq("listing_id", listingId)
+    .eq("user_id", userId)
+    .maybeSingle();
   if (!token || token.status !== "confirmed" || !token.token_address) {
     throw new Error("Only a verified Companion Token can be paired with liquidity.");
   }
@@ -68,12 +147,15 @@ async function loadVerifiedToken(db: Awaited<ReturnType<typeof admin>>, userId: 
 }
 
 async function requireInfra() {
-  const { verifyLiquidityInfra, requireVerifiedDeployment, rpcClient } = await import("@/lib/launchpad.server");
+  const { verifyLiquidityInfra, requireVerifiedDeployment, rpcClient } =
+    await import("@/lib/launchpad.server");
   const deployment = await requireVerifiedDeployment();
   const infra = await verifyLiquidityInfra();
   if (!infra.available) {
     const blocker = infra.checks.find((c) => !c.ok);
-    throw new Error(blocker ? `${blocker.label}: ${blocker.detail}` : "Uniswap infrastructure is not available.");
+    throw new Error(
+      blocker ? `${blocker.label}: ${blocker.detail}` : "Uniswap infrastructure is not available.",
+    );
   }
   return { deployment, infra, client: rpcClient(infra.chainId) };
 }
@@ -82,13 +164,25 @@ async function requireInfra() {
 
 export const previewLiquidity = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { listingId: string; wallet: string; tokenAmount: string; ethAmount: string; slippageBps: number }) => {
-    if (!isHexAddress(input.wallet)) throw new Error("Wallet is not a valid address.");
-    if (!Number.isInteger(input.slippageBps) || input.slippageBps < 10 || input.slippageBps > 2000) {
-      throw new Error("Slippage must be between 0.1% and 20%.");
-    }
-    return input;
-  })
+  .inputValidator(
+    (input: {
+      listingId: string;
+      wallet: string;
+      tokenAmount: string;
+      ethAmount: string;
+      slippageBps: number;
+    }) => {
+      if (!isHexAddress(input.wallet)) throw new Error("Wallet is not a valid address.");
+      if (
+        !Number.isInteger(input.slippageBps) ||
+        input.slippageBps < 10 ||
+        input.slippageBps > 2000
+      ) {
+        throw new Error("Slippage must be between 0.1% and 20%.");
+      }
+      return input;
+    },
+  )
   .handler(async ({ data, context }) => {
     const { getAddress, formatEther } = await import("viem");
     const db = await admin();
@@ -111,32 +205,81 @@ export const previewLiquidity = createServerFn({ method: "POST" })
 
     const pm = infra.positionManager as `0x${string}`;
     const weth = infra.weth as `0x${string}`;
-    const [ethBalance, tokenBalance, wethBalance, wethAllowance, tokenAllowance, poolAddress, gasPrice] = await Promise.all([
+    const [
+      ethBalance,
+      tokenBalance,
+      wethBalance,
+      wethAllowance,
+      tokenAllowance,
+      poolAddress,
+      gasPrice,
+    ] = await Promise.all([
       client.getBalance({ address: wallet }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "balanceOf", args: [wallet] }),
-      client.readContract({ address: weth, abi: weth9Abi, functionName: "balanceOf", args: [wallet] }),
-      client.readContract({ address: weth, abi: weth9Abi, functionName: "allowance", args: [wallet, pm] }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "allowance", args: [wallet, pm] }),
-      client.readContract({ address: infra.factory as `0x${string}`, abi: uniswapV3FactoryAbi, functionName: "getPool", args: [plan.token0, plan.token1, infra.feeTier] }),
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "balanceOf",
+        args: [wallet],
+      }),
+      client.readContract({
+        address: weth,
+        abi: weth9Abi,
+        functionName: "balanceOf",
+        args: [wallet],
+      }),
+      client.readContract({
+        address: weth,
+        abi: weth9Abi,
+        functionName: "allowance",
+        args: [wallet, pm],
+      }),
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "allowance",
+        args: [wallet, pm],
+      }),
+      client.readContract({
+        address: infra.factory as `0x${string}`,
+        abi: uniswapV3FactoryAbi,
+        functionName: "getPool",
+        args: [plan.token0, plan.token1, infra.feeTier],
+      }),
       client.getGasPrice(),
     ]);
 
-    let existingPool: { address: string; initialized: boolean; priceToken1PerToken0: string | null; liquidity: string } | null = null;
+    let existingPool: {
+      address: string;
+      initialized: boolean;
+      priceToken1PerToken0: string | null;
+      sqrtPriceX96: string | null;
+      liquidity: string;
+    } | null = null;
     if (poolAddress !== ZERO) {
       const [slot0, liquidity] = await Promise.all([
         client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "slot0" }),
-        client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "liquidity" }),
+        client.readContract({
+          address: poolAddress,
+          abi: uniswapV3PoolAbi,
+          functionName: "liquidity",
+        }),
       ]);
       existingPool = {
         address: poolAddress,
         initialized: slot0[0] !== 0n,
         priceToken1PerToken0: slot0[0] !== 0n ? priceFromSqrtPriceX96(slot0[0]) : null,
+        sqrtPriceX96: slot0[0] !== 0n ? slot0[0].toString() : null,
         liquidity: liquidity.toString(),
       };
     }
 
     const wrapNeeded = ethAmount > wethBalance ? ethAmount - wethBalance : 0n;
-    const steps: { step: LiquidityStep; label: string; needed: boolean; gasEstimate: bigint | null }[] = [];
+    const steps: {
+      step: LiquidityStep;
+      label: string;
+      needed: boolean;
+      gasEstimate: bigint | null;
+    }[] = [];
     const estimate = async (fn: () => Promise<bigint>) => {
       try {
         return await fn();
@@ -146,18 +289,40 @@ export const previewLiquidity = createServerFn({ method: "POST" })
     };
     steps.push({
       step: "wrap",
-      label: wrapNeeded > 0n ? `Wrap ${formatEther(wrapNeeded)} ETH into WETH` : "Wrap ETH (already have enough WETH)",
+      label:
+        wrapNeeded > 0n
+          ? `Wrap ${formatEther(wrapNeeded)} ETH into WETH`
+          : "Wrap ETH (already have enough WETH)",
       needed: wrapNeeded > 0n,
       gasEstimate:
         wrapNeeded > 0n && ethBalance >= wrapNeeded
-          ? await estimate(() => client.estimateContractGas({ address: weth, abi: weth9Abi, functionName: "deposit", account: wallet, value: wrapNeeded }))
+          ? await estimate(() =>
+              client.estimateContractGas({
+                address: weth,
+                abi: weth9Abi,
+                functionName: "deposit",
+                account: wallet,
+                value: wrapNeeded,
+              }),
+            )
           : null,
     });
     steps.push({
       step: "approve_weth",
       label: `Approve exactly ${formatEther(ethAmount)} WETH for the position manager`,
       needed: wethAllowance < ethAmount,
-      gasEstimate: wethAllowance < ethAmount ? await estimate(() => client.estimateContractGas({ address: weth, abi: weth9Abi, functionName: "approve", args: [pm, ethAmount], account: wallet })) : null,
+      gasEstimate:
+        wethAllowance < ethAmount
+          ? await estimate(() =>
+              client.estimateContractGas({
+                address: weth,
+                abi: weth9Abi,
+                functionName: "approve",
+                args: [pm, ethAmount],
+                account: wallet,
+              }),
+            )
+          : null,
     });
     steps.push({
       step: "approve_token",
@@ -165,24 +330,47 @@ export const previewLiquidity = createServerFn({ method: "POST" })
       needed: tokenAllowance < tokenAmount,
       gasEstimate:
         tokenAllowance < tokenAmount
-          ? await estimate(() => client.estimateContractGas({ address: tokenAddress, abi: companionTokenAbi, functionName: "approve", args: [pm, tokenAmount], account: wallet }))
+          ? await estimate(() =>
+              client.estimateContractGas({
+                address: tokenAddress,
+                abi: companionTokenAbi,
+                functionName: "approve",
+                args: [pm, tokenAmount],
+                account: wallet,
+              }),
+            )
           : null,
     });
     steps.push({
       step: "create_pool",
-      label: existingPool?.initialized ? "Pool already exists and is initialised (your ratio will NOT set the price)" : "Create and initialise the 0.3% pool at your opening price",
+      label: existingPool?.initialized
+        ? "Pool already exists and is initialised (your ratio will NOT set the price)"
+        : "Create and initialise the 0.3% pool at your opening price",
       needed: !existingPool?.initialized,
       gasEstimate: existingPool?.initialized ? null : FALLBACK_GAS.create_pool,
     });
-    steps.push({ step: "mint", label: "Mint the full-range liquidity position", needed: true, gasEstimate: FALLBACK_GAS.mint });
+    steps.push({
+      step: "mint",
+      label: "Mint the full-range liquidity position",
+      needed: true,
+      gasEstimate: FALLBACK_GAS.mint,
+    });
 
-    const totalGas = steps.reduce((sum, s) => sum + (s.needed && s.gasEstimate ? s.gasEstimate : 0n), 0n);
+    const totalGas = steps.reduce(
+      (sum, s) => sum + (s.needed && s.gasEstimate ? s.gasEstimate : 0n),
+      0n,
+    );
     const feeEstimateWei = totalGas * gasPrice;
     const ethNeeded = wrapNeeded + feeEstimateWei;
 
     return {
       chainId: infra.chainId,
-      token: { address: tokenAddress, symbol: token.symbol, name: token.name, totalSupply: String(token.total_supply) },
+      token: {
+        address: tokenAddress,
+        symbol: token.symbol,
+        name: token.name,
+        totalSupply: String(token.total_supply),
+      },
       weth: infra.weth,
       positionManager: infra.positionManager,
       factory: infra.factory,
@@ -218,8 +406,12 @@ export const previewLiquidity = createServerFn({ method: "POST" })
       feeEstimateEth: formatEther(feeEstimateWei),
       existingPool,
       problems: [
-        tokenBalance < tokenAmount ? `Your wallet holds ${formatEther(tokenBalance)} ${token.symbol}, less than the ${data.tokenAmount} you want to deposit.` : null,
-        ethBalance < ethNeeded ? `Your wallet holds ${formatEther(ethBalance)} ETH; about ${formatEther(ethNeeded)} ETH is needed for the deposit plus gas.` : null,
+        tokenBalance < tokenAmount
+          ? `Your wallet holds ${formatEther(tokenBalance)} ${token.symbol}, less than the ${data.tokenAmount} you want to deposit.`
+          : null,
+        ethBalance < ethNeeded
+          ? `Your wallet holds ${formatEther(ethBalance)} ETH; about ${formatEther(ethNeeded)} ETH is needed for the deposit plus gas.`
+          : null,
         existingPool?.initialized
           ? `A pool for this pair already exists at ${existingPool.priceToken1PerToken0} ${plan.tokenIsToken0 ? "WETH per token" : "tokens per WETH"}. Your amounts will be adjusted to that price and any excess stays in your wallet.`
           : null,
@@ -231,18 +423,40 @@ export const previewLiquidity = createServerFn({ method: "POST" })
 
 export const startLiquidity = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { listingId: string; wallet: string; tokenAmount: string; ethAmount: string; slippageBps: number; risksAccepted: boolean }) => {
-    if (!isHexAddress(input.wallet)) throw new Error("Wallet is not a valid address.");
-    if (!input.risksAccepted) throw new Error("You must accept every liquidity risk statement.");
-    if (!Number.isInteger(input.slippageBps) || input.slippageBps < 10 || input.slippageBps > 2000) throw new Error("Slippage must be between 0.1% and 20%.");
-    return input;
-  })
+  .inputValidator(
+    (input: {
+      listingId: string;
+      wallet: string;
+      tokenAmount: string;
+      ethAmount: string;
+      slippageBps: number;
+      risksAccepted: boolean;
+      /** Live pool sqrtPriceX96 the seller explicitly re-confirmed, when a pool already exists. */
+      acknowledgedPoolPriceX96?: string | null;
+    }) => {
+      if (!isHexAddress(input.wallet)) throw new Error("Wallet is not a valid address.");
+      if (!input.risksAccepted) throw new Error("You must accept every liquidity risk statement.");
+      if (
+        !Number.isInteger(input.slippageBps) ||
+        input.slippageBps < 10 ||
+        input.slippageBps > 2000
+      )
+        throw new Error("Slippage must be between 0.1% and 20%.");
+      if (input.acknowledgedPoolPriceX96 != null && !/^\d+$/.test(input.acknowledgedPoolPriceX96)) {
+        throw new Error("The acknowledged pool price is not a valid value.");
+      }
+      return input;
+    },
+  )
   .handler(async ({ data, context }) => {
     const { getAddress } = await import("viem");
     const db = await admin();
     const token = await loadVerifiedToken(db, context.userId, data.listingId);
     const { infra } = await requireInfra();
-    const { data: wallets } = await db.from("wallets").select("address").eq("user_id", context.userId);
+    const { data: wallets } = await db
+      .from("wallets")
+      .select("address")
+      .eq("user_id", context.userId);
     if (!(wallets ?? []).some((w) => w.address.toLowerCase() === data.wallet.toLowerCase())) {
       throw new Error("The connected wallet is not linked to this account.");
     }
@@ -250,10 +464,17 @@ export const startLiquidity = createServerFn({ method: "POST" })
       throw new Error("Only the wallet that created the token can launch its liquidity from here.");
     }
 
-    const { data: existing } = await db.from("liquidity_positions").select("*").eq("token_id", token.id).maybeSingle();
-    if (existing?.status === "confirmed") throw new Error("Liquidity has already been launched for this token.");
+    const { data: existing } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("token_id", token.id)
+      .maybeSingle();
+    if (existing?.status === "confirmed")
+      throw new Error("Liquidity has already been launched for this token.");
     if (existing && existing.status === "in_progress" && existing.step !== "wrap") {
-      throw new Error("A liquidity launch is already in progress. Continue it below or reset it first.");
+      throw new Error(
+        "A liquidity launch is already in progress. Continue it below or reset it first.",
+      );
     }
 
     const tokenAmount = parseFixed(data.tokenAmount, 18);
@@ -267,6 +488,34 @@ export const startLiquidity = createServerFn({ method: "POST" })
       slippageBps: data.slippageBps,
       tickSpacing: infra.tickSpacing,
     });
+
+    // A pool that already exists sets the price — the seller's ratio does not. The quote is only
+    // valid against the live price they were shown and explicitly re-confirmed.
+    const { client } = await requireInfra();
+    const live = await livePoolState(
+      client,
+      infra.factory,
+      plan.token0,
+      plan.token1,
+      infra.feeTier,
+    );
+    if (live.initialized && live.sqrtPriceX96) {
+      const acknowledged = data.acknowledgedPoolPriceX96
+        ? BigInt(data.acknowledgedPoolPriceX96)
+        : null;
+      if (!acknowledged) {
+        throw new Error(
+          `A 0.3% pool already exists at ${live.address} and is trading at sqrtPriceX96 ${live.sqrtPriceX96.toString()}. ` +
+            `Your opening ratio will NOT set the price. Review the live price and confirm it before continuing.`,
+        );
+      }
+      if (priceDeviationBps(acknowledged, live.sqrtPriceX96) > data.slippageBps) {
+        throw new Error(
+          `The pool price moved since you were quoted (confirmed ${acknowledged.toString()}, live ${live.sqrtPriceX96.toString()}). ` +
+            `The quote is void — review the new price and confirm it again.`,
+        );
+      }
+    }
 
     const row = {
       token_id: token.id,
@@ -289,6 +538,9 @@ export const startLiquidity = createServerFn({ method: "POST" })
       amount0_min: plan.amount0Min.toString(),
       amount1_min: plan.amount1Min.toString(),
       slippage_bps: data.slippageBps,
+      acknowledged_pool_price_x96:
+        live.initialized && live.sqrtPriceX96 ? live.sqrtPriceX96.toString() : null,
+      acknowledged_pool_price_at: live.initialized ? new Date().toISOString() : null,
       step: "wrap" as const,
       status: "in_progress" as const,
       failure_reason: null,
@@ -319,7 +571,12 @@ export const prepareLiquidityStep = createServerFn({ method: "POST" })
     const { encodeFunctionData, getAddress, formatEther } = await import("viem");
     const db = await admin();
     const { infra, client } = await requireInfra();
-    const { data: position } = await db.from("liquidity_positions").select("*").eq("listing_id", data.listingId).eq("user_id", context.userId).maybeSingle();
+    const { data: position } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
     if (!position) throw new Error("Start the liquidity plan first.");
     if (position.status === "confirmed") throw new Error("Liquidity is already live.");
 
@@ -337,25 +594,60 @@ export const prepareLiquidityStep = createServerFn({ method: "POST" })
     if (step === "done") throw new Error("All steps are complete. Verify the position.");
     const pendingHash = position[STEP_TX_COLUMN[step]];
     if (pendingHash) {
-      return { step, skip: false as const, pendingTxHash: pendingHash, to: null, data: null, value: null, description: "A transaction for this step is pending verification." };
+      return {
+        step,
+        skip: false as const,
+        pendingTxHash: pendingHash,
+        to: null,
+        data: null,
+        value: null,
+        description: "A transaction for this step is pending verification.",
+      };
     }
 
     const [wethBalance, wethAllowance, tokenAllowance, poolAddress] = await Promise.all([
-      client.readContract({ address: weth, abi: weth9Abi, functionName: "balanceOf", args: [wallet] }),
-      client.readContract({ address: weth, abi: weth9Abi, functionName: "allowance", args: [wallet, pm] }),
-      client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "allowance", args: [wallet, pm] }),
-      client.readContract({ address: getAddress(position.factory_address), abi: uniswapV3FactoryAbi, functionName: "getPool", args: [token0, token1, position.fee_tier] }),
+      client.readContract({
+        address: weth,
+        abi: weth9Abi,
+        functionName: "balanceOf",
+        args: [wallet],
+      }),
+      client.readContract({
+        address: weth,
+        abi: weth9Abi,
+        functionName: "allowance",
+        args: [wallet, pm],
+      }),
+      client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "allowance",
+        args: [wallet, pm],
+      }),
+      client.readContract({
+        address: getAddress(position.factory_address),
+        abi: uniswapV3FactoryAbi,
+        functionName: "getPool",
+        args: [token0, token1, position.fee_tier],
+      }),
     ]);
 
     const advance = async (next: LiquidityStep) => {
-      await db.from("liquidity_positions").update({ step: next, status: "in_progress" }).eq("id", position.id);
+      await db
+        .from("liquidity_positions")
+        .update({ step: next, status: "in_progress" })
+        .eq("id", position.id);
     };
 
     if (step === "wrap") {
       const shortfall = ethAmount > wethBalance ? ethAmount - wethBalance : 0n;
       if (shortfall === 0n) {
         await advance("approve_weth");
-        return { step, skip: true as const, description: "You already hold enough WETH; nothing to wrap." };
+        return {
+          step,
+          skip: true as const,
+          description: "You already hold enough WETH; nothing to wrap.",
+        };
       }
       return {
         step,
@@ -392,17 +684,37 @@ export const prepareLiquidityStep = createServerFn({ method: "POST" })
         skip: false as const,
         pendingTxHash: null,
         to: tokenAddress,
-        data: encodeFunctionData({ abi: companionTokenAbi, functionName: "approve", args: [pm, tokenAmount] }),
+        data: encodeFunctionData({
+          abi: companionTokenAbi,
+          functionName: "approve",
+          args: [pm, tokenAmount],
+        }),
         value: null,
         description: `Approve exactly ${formatEther(tokenAmount)} tokens — not unlimited.`,
       };
     }
     if (step === "create_pool") {
       if (poolAddress !== ZERO) {
-        const slot0 = await client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "slot0" });
+        const slot0 = await client.readContract({
+          address: poolAddress,
+          abi: uniswapV3PoolAbi,
+          functionName: "slot0",
+        });
         if (slot0[0] !== 0n) {
-          await db.from("liquidity_positions").update({ step: "mint", status: "in_progress", pool_address: poolAddress.toLowerCase() }).eq("id", position.id);
-          return { step, skip: true as const, description: `The pool already exists at ${poolAddress} and is initialised.` };
+          requireFreshQuote(position, slot0[0]);
+          await db
+            .from("liquidity_positions")
+            .update({
+              step: "mint",
+              status: "in_progress",
+              pool_address: poolAddress.toLowerCase(),
+            })
+            .eq("id", position.id);
+          return {
+            step,
+            skip: true as const,
+            description: `The pool already exists at ${poolAddress} and is initialised.`,
+          };
         }
       }
       return {
@@ -420,8 +732,22 @@ export const prepareLiquidityStep = createServerFn({ method: "POST" })
       };
     }
     // mint
-    if (wethBalance < ethAmount) throw new Error(`Your WETH balance (${formatEther(wethBalance)}) dropped below the planned ${formatEther(ethAmount)}. Reset the plan.`);
-    if (wethAllowance < ethAmount || tokenAllowance < tokenAmount) throw new Error("An approval is missing or was reduced. Reset the plan and run the approvals again.");
+    if (poolAddress !== ZERO) {
+      const slot0 = await client.readContract({
+        address: poolAddress,
+        abi: uniswapV3PoolAbi,
+        functionName: "slot0",
+      });
+      if (slot0[0] !== 0n) requireFreshQuote(position, slot0[0]);
+    }
+    if (wethBalance < ethAmount)
+      throw new Error(
+        `Your WETH balance (${formatEther(wethBalance)}) dropped below the planned ${formatEther(ethAmount)}. Reset the plan.`,
+      );
+    if (wethAllowance < ethAmount || tokenAllowance < tokenAmount)
+      throw new Error(
+        "An approval is missing or was reduced. Reset the plan and run the approvals again.",
+      );
     const deadline = BigInt(Math.floor(Date.now() / 1000) + position.deadline_seconds);
     const params = {
       token0,
@@ -441,7 +767,11 @@ export const prepareLiquidityStep = createServerFn({ method: "POST" })
       skip: false as const,
       pendingTxHash: null,
       to: pm,
-      data: encodeFunctionData({ abi: nonfungiblePositionManagerAbi, functionName: "mint", args: [params] }),
+      data: encodeFunctionData({
+        abi: nonfungiblePositionManagerAbi,
+        functionName: "mint",
+        args: [params],
+      }),
       value: null,
       description: `Mint the full-range position (ticks ${position.tick_lower} to ${position.tick_upper}); the deadline is ${position.deadline_seconds / 60} minutes from now.`,
       params: {
@@ -466,14 +796,26 @@ export const recordLiquidityStep = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const db = await admin();
-    const { data: position } = await db.from("liquidity_positions").select("*").eq("listing_id", data.listingId).eq("user_id", context.userId).maybeSingle();
+    const { data: position } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
     if (!position) throw new Error("Start the liquidity plan first.");
-    if (position.step !== data.step) throw new Error(`The plan is at step "${position.step}", not "${data.step}".`);
+    if (position.step !== data.step)
+      throw new Error(`The plan is at step "${position.step}", not "${data.step}".`);
     const column = STEP_TX_COLUMN[data.step as Exclude<LiquidityStep, "done">];
-    if (position[column] && position[column] !== data.txHash) throw new Error("A different transaction is already recorded for this step.");
+    if (position[column] && position[column] !== data.txHash)
+      throw new Error("A different transaction is already recorded for this step.");
     const update: LiquidityUpdate = { status: "in_progress", failure_reason: null };
     update[column] = data.txHash;
-    const { data: saved, error } = await db.from("liquidity_positions").update(update).eq("id", position.id).select("*").single();
+    const { data: saved, error } = await db
+      .from("liquidity_positions")
+      .update(update)
+      .eq("id", position.id)
+      .select("*")
+      .single();
     if (error) throw new Error(error.message);
     return saved;
   });
@@ -487,27 +829,58 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
     const { decodeEventLog, getAddress } = await import("viem");
     const db = await admin();
     const { infra, client } = await requireInfra();
-    const { data: position } = await db.from("liquidity_positions").select("*").eq("listing_id", data.listingId).eq("user_id", context.userId).maybeSingle();
+    const { data: position } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
     if (!position) throw new Error("Start the liquidity plan first.");
-    if (position.status === "confirmed") return { outcome: "confirmed" as const, position, message: "Already verified." };
+    if (position.status === "confirmed")
+      return { outcome: "confirmed" as const, position, message: "Already verified." };
 
     const step = position.step as LiquidityStep;
     if (step === "done") throw new Error("Unexpected state: no step to verify.");
     const column = STEP_TX_COLUMN[step];
     const hash = position[column];
-    if (!hash || !isTxHash(hash)) return { outcome: "pending" as const, position, message: "No transaction recorded for the current step." };
+    if (!hash || !isTxHash(hash))
+      return {
+        outcome: "pending" as const,
+        position,
+        message: "No transaction recorded for the current step.",
+      };
 
     let receipt;
     try {
-      receipt = await client.waitForTransactionReceipt({ hash, timeout: 60_000, pollingInterval: 2_000 });
+      receipt = await client.waitForTransactionReceipt({
+        hash,
+        timeout: 60_000,
+        pollingInterval: 2_000,
+      });
     } catch {
-      return { outcome: "pending" as const, position, message: "The transaction has not been mined yet. Check again shortly." };
+      return {
+        outcome: "pending" as const,
+        position,
+        message: "The transaction has not been mined yet. Check again shortly.",
+      };
     }
     if (receipt.status !== "success") {
-      const failedUpdate: LiquidityUpdate = { status: "failed", failure_reason: `The ${step.replace("_", " ")} transaction reverted on-chain.` };
+      const failedUpdate: LiquidityUpdate = {
+        status: "failed",
+        failure_reason: `The ${step.replace("_", " ")} transaction reverted on-chain.`,
+      };
       failedUpdate[column] = null;
-      const { data: failed } = await db.from("liquidity_positions").update(failedUpdate).eq("id", position.id).select("*").single();
-      return { outcome: "failed" as const, position: failed, message: `The ${step.replace("_", " ")} transaction reverted.` };
+      const { data: failed } = await db
+        .from("liquidity_positions")
+        .update(failedUpdate)
+        .eq("id", position.id)
+        .select("*")
+        .single();
+      return {
+        outcome: "failed" as const,
+        position: failed,
+        message: `The ${step.replace("_", " ")} transaction reverted.`,
+      };
     }
 
     const wallet = getAddress(position.wallet_address);
@@ -521,45 +894,134 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
 
     // Verify the effect of each step against live state, not just the receipt.
     if (step === "wrap") {
-      const balance = await client.readContract({ address: weth, abi: weth9Abi, functionName: "balanceOf", args: [wallet] });
-      if (balance < BigInt(position.eth_amount)) throw new Error("The wrap was mined but the WETH balance is still below the planned amount. Nothing advanced.");
+      const balance = await client.readContract({
+        address: weth,
+        abi: weth9Abi,
+        functionName: "balanceOf",
+        args: [wallet],
+      });
+      if (balance < BigInt(position.eth_amount))
+        throw new Error(
+          "The wrap was mined but the WETH balance is still below the planned amount. Nothing advanced.",
+        );
     } else if (step === "approve_weth") {
-      const allowance = await client.readContract({ address: weth, abi: weth9Abi, functionName: "allowance", args: [wallet, pm] });
-      if (allowance < BigInt(position.eth_amount)) throw new Error("The approval was mined but the WETH allowance is still insufficient. Nothing advanced.");
+      const allowance = await client.readContract({
+        address: weth,
+        abi: weth9Abi,
+        functionName: "allowance",
+        args: [wallet, pm],
+      });
+      if (allowance < BigInt(position.eth_amount))
+        throw new Error(
+          "The approval was mined but the WETH allowance is still insufficient. Nothing advanced.",
+        );
     } else if (step === "approve_token") {
-      const allowance = await client.readContract({ address: tokenAddress, abi: companionTokenAbi, functionName: "allowance", args: [wallet, pm] });
-      if (allowance < BigInt(position.token_amount)) throw new Error("The approval was mined but the token allowance is still insufficient. Nothing advanced.");
+      const allowance = await client.readContract({
+        address: tokenAddress,
+        abi: companionTokenAbi,
+        functionName: "allowance",
+        args: [wallet, pm],
+      });
+      if (allowance < BigInt(position.token_amount))
+        throw new Error(
+          "The approval was mined but the token allowance is still insufficient. Nothing advanced.",
+        );
     } else if (step === "create_pool") {
-      const poolAddress = await client.readContract({ address: getAddress(position.factory_address), abi: uniswapV3FactoryAbi, functionName: "getPool", args: [token0, token1, position.fee_tier] });
-      if (poolAddress === ZERO) throw new Error("The transaction was mined but the official factory reports no pool for this pair. Nothing advanced.");
+      const poolAddress = await client.readContract({
+        address: getAddress(position.factory_address),
+        abi: uniswapV3FactoryAbi,
+        functionName: "getPool",
+        args: [token0, token1, position.fee_tier],
+      });
+      if (poolAddress === ZERO)
+        throw new Error(
+          "The transaction was mined but the official factory reports no pool for this pair. Nothing advanced.",
+        );
       const [slot0, pToken0, pToken1, pFee, pFactory] = await Promise.all([
         client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "slot0" }),
-        client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "token0" }),
-        client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "token1" }),
+        client.readContract({
+          address: poolAddress,
+          abi: uniswapV3PoolAbi,
+          functionName: "token0",
+        }),
+        client.readContract({
+          address: poolAddress,
+          abi: uniswapV3PoolAbi,
+          functionName: "token1",
+        }),
         client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "fee" }),
-        client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "factory" }),
+        client.readContract({
+          address: poolAddress,
+          abi: uniswapV3PoolAbi,
+          functionName: "factory",
+        }),
       ]);
-      if (slot0[0] === 0n) throw new Error("The pool exists but is not initialised. Nothing advanced.");
-      if (getAddress(pToken0) !== token0 || getAddress(pToken1) !== token1 || Number(pFee) !== position.fee_tier || getAddress(pFactory) !== getAddress(infra.factory)) {
-        throw new Error("The pool's tokens, fee or factory do not match the plan. Nothing advanced.");
+      if (slot0[0] === 0n)
+        throw new Error("The pool exists but is not initialised. Nothing advanced.");
+      if (
+        getAddress(pToken0) !== token0 ||
+        getAddress(pToken1) !== token1 ||
+        Number(pFee) !== position.fee_tier ||
+        getAddress(pFactory) !== getAddress(infra.factory)
+      ) {
+        throw new Error(
+          "The pool's tokens, fee or factory do not match the plan. Nothing advanced.",
+        );
       }
-      await db.from("liquidity_positions").update({ pool_address: poolAddress.toLowerCase() }).eq("id", position.id);
+      await db
+        .from("liquidity_positions")
+        .update({ pool_address: poolAddress.toLowerCase() })
+        .eq("id", position.id);
     } else if (step === "mint") {
       const minted = findIncreaseLiquidity(receipt.logs, pm, decodeEventLog, getAddress);
-      if (!minted) throw new Error("The transaction succeeded but no IncreaseLiquidity event was emitted by the position manager. Nothing was saved.");
+      if (!minted)
+        throw new Error(
+          "The transaction succeeded but no IncreaseLiquidity event was emitted by the position manager. Nothing was saved.",
+        );
       const [owner, pos, poolAddress] = await Promise.all([
-        client.readContract({ address: pm, abi: nonfungiblePositionManagerAbi, functionName: "ownerOf", args: [minted.tokenId] }),
-        client.readContract({ address: pm, abi: nonfungiblePositionManagerAbi, functionName: "positions", args: [minted.tokenId] }),
-        client.readContract({ address: getAddress(position.factory_address), abi: uniswapV3FactoryAbi, functionName: "getPool", args: [token0, token1, position.fee_tier] }),
+        client.readContract({
+          address: pm,
+          abi: nonfungiblePositionManagerAbi,
+          functionName: "ownerOf",
+          args: [minted.tokenId],
+        }),
+        client.readContract({
+          address: pm,
+          abi: nonfungiblePositionManagerAbi,
+          functionName: "positions",
+          args: [minted.tokenId],
+        }),
+        client.readContract({
+          address: getAddress(position.factory_address),
+          abi: uniswapV3FactoryAbi,
+          functionName: "getPool",
+          args: [token0, token1, position.fee_tier],
+        }),
       ]);
-      if (getAddress(owner) !== wallet) throw new Error("The position NFT is not owned by your wallet. Nothing was saved.");
-      if (getAddress(pos[2]) !== token0 || getAddress(pos[3]) !== token1 || Number(pos[4]) !== position.fee_tier || pos[5] !== position.tick_lower || pos[6] !== position.tick_upper) {
-        throw new Error("The minted position does not match the plan (tokens, fee or ticks). Nothing was saved.");
+      if (getAddress(owner) !== wallet)
+        throw new Error("The position NFT is not owned by your wallet. Nothing was saved.");
+      if (
+        getAddress(pos[2]) !== token0 ||
+        getAddress(pos[3]) !== token1 ||
+        Number(pos[4]) !== position.fee_tier ||
+        pos[5] !== position.tick_lower ||
+        pos[6] !== position.tick_upper
+      ) {
+        throw new Error(
+          "The minted position does not match the plan (tokens, fee or ticks). Nothing was saved.",
+        );
       }
-      if (pos[7] === 0n || minted.liquidity === 0n) throw new Error("The position has zero liquidity. Nothing was saved.");
-      if (poolAddress === ZERO) throw new Error("The official factory reports no pool for this pair. Nothing was saved.");
-      const poolLiquidity = await client.readContract({ address: poolAddress, abi: uniswapV3PoolAbi, functionName: "liquidity" });
-      if (poolLiquidity === 0n) throw new Error("The pool reports zero liquidity. Nothing was saved.");
+      if (pos[7] === 0n || minted.liquidity === 0n)
+        throw new Error("The position has zero liquidity. Nothing was saved.");
+      if (poolAddress === ZERO)
+        throw new Error("The official factory reports no pool for this pair. Nothing was saved.");
+      const poolLiquidity = await client.readContract({
+        address: poolAddress,
+        abi: uniswapV3PoolAbi,
+        functionName: "liquidity",
+      });
+      if (poolLiquidity === 0n)
+        throw new Error("The pool reports zero liquidity. Nothing was saved.");
 
       const { data: confirmed, error } = await db
         .from("liquidity_positions")
@@ -576,12 +1038,25 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
         .select("*")
         .single();
       if (error) throw new Error(error.message);
-      return { outcome: "confirmed" as const, position: confirmed, message: "Liquidity position verified through the official Uniswap factory." };
+      return {
+        outcome: "confirmed" as const,
+        position: confirmed,
+        message: "Liquidity position verified through the official Uniswap factory.",
+      };
     }
 
-    const { data: advanced, error } = await db.from("liquidity_positions").update({ step: next, status: "in_progress" }).eq("id", position.id).select("*").single();
+    const { data: advanced, error } = await db
+      .from("liquidity_positions")
+      .update({ step: next, status: "in_progress" })
+      .eq("id", position.id)
+      .select("*")
+      .single();
     if (error) throw new Error(error.message);
-    return { outcome: "advanced" as const, position: advanced, message: `${step.replace("_", " ")} verified.` };
+    return {
+      outcome: "advanced" as const,
+      position: advanced,
+      message: `${step.replace("_", " ")} verified.`,
+    };
   });
 
 /** Abandons an unconfirmed plan. Approvals or WETH already on-chain stay in the wallet; nothing is hidden. */
@@ -590,11 +1065,243 @@ export const resetLiquidity = createServerFn({ method: "POST" })
   .inputValidator((input: { listingId: string }) => input)
   .handler(async ({ data, context }) => {
     const db = await admin();
-    const { data: position } = await db.from("liquidity_positions").select("*").eq("listing_id", data.listingId).eq("user_id", context.userId).maybeSingle();
+    const { data: position } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
     if (!position) return { reset: false };
-    if (position.status === "confirmed") throw new Error("A confirmed liquidity position cannot be reset.");
-    if (position.mint_tx_hash) throw new Error("A mint transaction is recorded. Verify it before resetting.");
+    if (position.status === "confirmed")
+      throw new Error("A confirmed liquidity position cannot be reset.");
+    if (position.mint_tx_hash)
+      throw new Error("A mint transaction is recorded. Verify it before resetting.");
     const { error } = await db.from("liquidity_positions").delete().eq("id", position.id);
     if (error) throw new Error(error.message);
     return { reset: true };
+  });
+
+/* --------------------------------------------------------------- lock-up */
+
+const MIN_LOCK_SECONDS = 180 * 24 * 60 * 60;
+
+/** Resolves the configured locker and checks it is a real contract bound to the official position manager. */
+async function requireLocker(
+  client: Awaited<ReturnType<typeof requireInfra>>["client"],
+  positionManager: string,
+) {
+  const { getAddress } = await import("viem");
+  const { publicEnv } = await import("@/config/env");
+  const configured = publicEnv.liquidityLockerAddress;
+  if (!configured || !isHexAddress(configured)) {
+    throw new Error(
+      "VITE_LIQUIDITY_LOCKER_ADDRESS is not set, so liquidity cannot be locked. Deploy YardLiquidityLocker and configure its address first.",
+    );
+  }
+  const locker = getAddress(configured);
+  const code = await client.getBytecode({ address: locker });
+  if (!code || code === "0x")
+    throw new Error(`No contract exists at the configured locker address ${locker}.`);
+  const bound = await client.readContract({
+    address: locker,
+    abi: liquidityLockerAbi,
+    functionName: "positionManager",
+  });
+  if (getAddress(bound) !== getAddress(positionManager)) {
+    throw new Error(
+      "The configured locker is bound to a different Uniswap position manager. Locking is disabled.",
+    );
+  }
+  const minimum = await client.readContract({
+    address: locker,
+    abi: liquidityLockerAbi,
+    functionName: "MIN_LOCK_DURATION",
+  });
+  return { locker, minimum: Number(minimum) };
+}
+
+/** Builds the single transaction that transfers the position NFT into the locker. */
+export const prepareLiquidityLock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string; lockDays: number; permanent: boolean }) => {
+    if (
+      !input.permanent &&
+      (!Number.isInteger(input.lockDays) || input.lockDays < 180 || input.lockDays > 3650)
+    ) {
+      throw new Error("A timed lock must be between 180 and 3650 days.");
+    }
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const { encodeAbiParameters, encodeFunctionData, getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const { data: position } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (!position || position.status !== "confirmed" || !position.position_token_id) {
+      throw new Error("Only a verified liquidity position can be locked.");
+    }
+    if (position.lock_verified_at) throw new Error("This position is already locked.");
+
+    const pm = getAddress(position.position_manager);
+    const wallet = getAddress(position.wallet_address);
+    const positionId = BigInt(position.position_token_id);
+    const { locker, minimum } = await requireLocker(client, pm);
+
+    const owner = await client.readContract({
+      address: pm,
+      abi: nonfungiblePositionManagerAbi,
+      functionName: "ownerOf",
+      args: [positionId],
+    });
+    if (getAddress(owner) !== wallet)
+      throw new Error("Your wallet no longer owns this position NFT, so it cannot be locked.");
+
+    const duration = data.permanent
+      ? 0
+      : Math.max(data.lockDays * 24 * 60 * 60, Math.max(minimum, MIN_LOCK_SECONDS));
+    const payload = encodeAbiParameters(
+      [{ type: "uint64" }, { type: "bool" }],
+      [BigInt(duration), data.permanent],
+    );
+    return {
+      locker,
+      positionId: positionId.toString(),
+      permanent: data.permanent,
+      lockSeconds: duration,
+      unlockAtEstimate: data.permanent
+        ? null
+        : new Date(Date.now() + duration * 1000).toISOString(),
+      to: pm,
+      data: encodeFunctionData({
+        abi: nonfungiblePositionManagerAbi,
+        functionName: "safeTransferFrom",
+        args: [wallet, locker, positionId, payload],
+      }),
+      description: data.permanent
+        ? `Permanently locks position #${positionId.toString()} in ${locker}. It can never be withdrawn.`
+        : `Locks position #${positionId.toString()} in ${locker} for ${Math.round(duration / 86400)} days. Only your wallet can withdraw it afterwards.`,
+    };
+  });
+
+/** Stores the submitted lock transaction hash so a refresh can recover it. */
+export const recordLiquidityLock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string; txHash: string }) => {
+    if (!isTxHash(input.txHash)) throw new Error("That is not a valid transaction hash.");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const db = await admin();
+    const { error } = await db
+      .from("liquidity_positions")
+      .update({ lock_tx_hash: data.txHash.toLowerCase() })
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    return { recorded: true };
+  });
+
+/** Confirms the lock only when the locker actually owns the position NFT on-chain. */
+export const verifyLiquidityLock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { listingId: string }) => input)
+  .handler(async ({ data, context }) => {
+    const { getAddress } = await import("viem");
+    const db = await admin();
+    const { client } = await requireInfra();
+    const { data: position } = await db
+      .from("liquidity_positions")
+      .select("*")
+      .eq("listing_id", data.listingId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (!position || !position.position_token_id)
+      throw new Error("There is no verified position to check.");
+    if (!position.lock_tx_hash || !isTxHash(position.lock_tx_hash)) {
+      return { outcome: "pending" as const, message: "No lock transaction has been recorded yet." };
+    }
+
+    const pm = getAddress(position.position_manager);
+    const positionId = BigInt(position.position_token_id);
+    const { locker } = await requireLocker(client, pm);
+
+    let receipt;
+    try {
+      receipt = await client.waitForTransactionReceipt({
+        hash: position.lock_tx_hash as `0x${string}`,
+        timeout: 60_000,
+        pollingInterval: 2_000,
+      });
+    } catch {
+      return {
+        outcome: "pending" as const,
+        message: "The lock transaction has not been mined yet. Check again shortly.",
+      };
+    }
+    if (receipt.status !== "success") {
+      await db.from("liquidity_positions").update({ lock_tx_hash: null }).eq("id", position.id);
+      return {
+        outcome: "failed" as const,
+        message: "The lock transaction reverted. Nothing was saved.",
+      };
+    }
+
+    const owner = await client.readContract({
+      address: pm,
+      abi: nonfungiblePositionManagerAbi,
+      functionName: "ownerOf",
+      args: [positionId],
+    });
+    if (getAddress(owner) !== locker)
+      throw new Error(
+        "The locker does not own the position NFT, so the liquidity is NOT locked. Nothing was saved.",
+      );
+    const info = await client.readContract({
+      address: locker,
+      abi: liquidityLockerAbi,
+      functionName: "lockInfo",
+      args: [positionId],
+    });
+    if (getAddress(info.depositor) !== getAddress(position.wallet_address)) {
+      throw new Error("The lock was recorded for a different depositor. Nothing was saved.");
+    }
+    if (info.withdrawn)
+      throw new Error("The locker reports this position as already withdrawn. Nothing was saved.");
+    const stillLocked = await client.readContract({
+      address: locker,
+      abi: liquidityLockerAbi,
+      functionName: "isLocked",
+      args: [positionId],
+    });
+    if (!stillLocked)
+      throw new Error(
+        "The locker does not report an active lock for this position. Nothing was saved.",
+      );
+
+    const permanent = info.permanent;
+    const unlockAt = permanent ? null : new Date(Number(info.unlockAt) * 1000).toISOString();
+    const { data: saved, error } = await db
+      .from("liquidity_positions")
+      .update({
+        locker_address: locker.toLowerCase(),
+        lock_permanent: permanent,
+        lock_unlock_at: unlockAt,
+        lock_verified_at: new Date().toISOString(),
+      })
+      .eq("id", position.id)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    return {
+      outcome: "locked" as const,
+      position: saved,
+      message: permanent
+        ? `Position #${positionId.toString()} is permanently locked in ${locker}.`
+        : `Position #${positionId.toString()} is locked in ${locker} until ${unlockAt}.`,
+    };
   });

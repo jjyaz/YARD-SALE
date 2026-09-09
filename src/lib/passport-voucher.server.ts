@@ -40,7 +40,9 @@ export type MintVoucher = {
 
 export function signerStatus(): { configured: boolean; missing: string | null } {
   const key = process.env["PLATFORM_SIGNER_PRIVATE_KEY"];
-  return key ? { configured: true, missing: null } : { configured: false, missing: "PLATFORM_SIGNER_PRIVATE_KEY" };
+  return key
+    ? { configured: true, missing: null }
+    : { configured: false, missing: "PLATFORM_SIGNER_PRIVATE_KEY" };
 }
 
 async function signerAccount() {
@@ -51,7 +53,8 @@ async function signerAccount() {
     );
   }
   const normalised = key.startsWith("0x") ? key : `0x${key}`;
-  if (!/^0x[0-9a-fA-F]{64}$/.test(normalised)) throw new Error("PLATFORM_SIGNER_PRIVATE_KEY is not a 32-byte hex key.");
+  if (!/^0x[0-9a-fA-F]{64}$/.test(normalised))
+    throw new Error("PLATFORM_SIGNER_PRIVATE_KEY is not a 32-byte hex key.");
   const { privateKeyToAccount } = await import("viem/accounts");
   return privateKeyToAccount(normalised as `0x${string}`);
 }

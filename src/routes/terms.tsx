@@ -8,7 +8,8 @@ export const Route = createFileRoute("/terms")({
       { title: "Terms of Use — YARD SALE" },
       {
         name: "description",
-        content: "The terms that govern listing, buying and using YARD SALE. Draft, pending legal review.",
+        content:
+          "The terms that govern listing, buying and using YARD SALE. Draft, pending legal review.",
       },
       { property: "og:title", content: "Terms of Use — YARD SALE" },
       { property: "og:description", content: "Terms governing use of the YARD SALE marketplace." },

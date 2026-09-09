@@ -103,16 +103,29 @@ function Settings() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="city">City or town</Label>
-            <Input id="city" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+            <Input
+              id="city"
+              value={form.city}
+              onChange={(e) => setForm({ ...form, city: e.target.value })}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="region">Region</Label>
-            <Input id="region" value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} />
+            <Input
+              id="region"
+              value={form.region}
+              onChange={(e) => setForm({ ...form, region: e.target.value })}
+            />
           </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="bio">Bio</Label>
-          <Textarea id="bio" rows={3} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
+          <Textarea
+            id="bio"
+            rows={3}
+            value={form.bio}
+            onChange={(e) => setForm({ ...form, bio: e.target.value })}
+          />
           <p className="text-xs text-muted-foreground">
             Shown publicly. Don't include your address or phone number.
           </p>

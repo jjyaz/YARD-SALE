@@ -73,8 +73,8 @@ function TrustSafety() {
         </Section>
         <Section title="The limits of this platform">
           <p>
-            YARD SALE is an unaudited beta. We do not escrow funds, guarantee items, verify identity,
-            or resolve disputes. Transactions happen between you and the other person.
+            YARD SALE is an unaudited beta. We do not escrow funds, guarantee items, verify
+            identity, or resolve disputes. Transactions happen between you and the other person.
           </p>
         </Section>
       </ContentBody>
