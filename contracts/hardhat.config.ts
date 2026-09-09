@@ -34,6 +34,13 @@ export const ROBINHOOD_TESTNET = {
 
 const forkUrl = process.env.MAINNET_FORK === "true" ? process.env[ROBINHOOD_MAINNET.rpcEnv] : undefined;
 
+/**
+ * Local end-to-end rehearsals: `LOCAL_CHAIN_ID=46630 npx hardhat node` starts an in-memory chain
+ * that reports the testnet chain id, so the app (pointed at http://127.0.0.1:8545) exercises the
+ * exact same code path it uses against the real network. Never used for real deployments.
+ */
+const localChainId = process.env.LOCAL_CHAIN_ID ? Number(process.env.LOCAL_CHAIN_ID) : undefined;
+
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.24",
@@ -50,7 +57,9 @@ const config: HardhatUserConfig = {
           chainId: ROBINHOOD_MAINNET.chainId,
           forking: { url: forkUrl },
         }
-      : {},
+      : localChainId
+        ? { chainId: localChainId }
+        : {},
     [ROBINHOOD_TESTNET.name]: {
       url: process.env[ROBINHOOD_TESTNET.rpcEnv] || ROBINHOOD_TESTNET.defaultRpc,
       chainId: ROBINHOOD_TESTNET.chainId,
