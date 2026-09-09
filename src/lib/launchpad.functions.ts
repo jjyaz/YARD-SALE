@@ -336,13 +336,40 @@ export const prepareMint = createServerFn({ method: "POST" })
       return { alreadyMinted: true as const, tokenId: existingTokenId.toString() };
     }
 
-    const args = [
-      wallet,
-      passport.listing_key as `0x${string}`,
-      passport.metadata_uri,
-      passport.metadata_hash as `0x${string}`,
-      passport.terms_hash as `0x${string}`,
-    ] as const;
+    // --- EIP-712 mint voucher -------------------------------------------------
+    // The registry rejects any mint that is not authorised by the platform signer, so a
+    // stranger who knows this listing's public UUID cannot front-run the seller.
+    const { keccak256, toBytes } = await import("viem");
+    const { nonceForPassport, platformSignerAddress, signMintVoucher, VOUCHER_TTL_SECONDS } = await import(
+      "@/lib/passport-voucher.server"
+    );
+
+    const signerAddress = await platformSignerAddress();
+    const signerRole = keccak256(toBytes("SIGNER_ROLE"));
+    const signerAuthorised = await client.readContract({
+      address: config.registry,
+      abi: assetRegistryAbi,
+      functionName: "hasRole",
+      args: [signerRole, signerAddress],
+    });
+    if (!signerAuthorised) {
+      throw new Error(
+        `The platform mint signer ${signerAddress} does not hold SIGNER_ROLE on the registry ${config.registry}. The administrator must grant it before any passport can be minted.`,
+      );
+    }
+
+    const voucher = {
+      seller: wallet,
+      listingId: passport.listing_key as `0x${string}`,
+      metadataURIHash: keccak256(toBytes(passport.metadata_uri)),
+      metadataHash: passport.metadata_hash as `0x${string}`,
+      termsHash: passport.terms_hash as `0x${string}`,
+      nonce: nonceForPassport(passport.id),
+      expiry: BigInt(Math.floor(Date.now() / 1000) + VOUCHER_TTL_SECONDS),
+    };
+    const { signature } = await signMintVoucher({ chainId: config.chainId, registry: config.registry, voucher });
+
+    const args = [voucher, passport.metadata_uri, signature] as const;
     const calldata = encodeFunctionData({ abi: assetRegistryAbi, functionName: "mintPassport", args });
 
     const [balance, gasPrice] = await Promise.all([client.getBalance({ address: wallet }), client.getGasPrice()]);

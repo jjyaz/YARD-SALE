@@ -22,27 +22,43 @@ async function main() {
   }
   await requireChain(hre, MAINNET_CHAIN_ID);
 
-  const [deployer, fallbackAdmin] = await hre.ethers.getSigners();
+  const [deployer, fallbackAdmin, fallbackSigner] = await hre.ethers.getSigners();
   const admin = process.env.MAINNET_ADMIN_ADDRESS
     ? hre.ethers.getAddress(process.env.MAINNET_ADMIN_ADDRESS)
     : await fallbackAdmin.getAddress();
   const treasury = process.env.MAINNET_TREASURY_ADDRESS
     ? hre.ethers.getAddress(process.env.MAINNET_TREASURY_ADDRESS)
     : admin;
+  const platformSigner = process.env.MAINNET_SIGNER_ADDRESS
+    ? hre.ethers.getAddress(process.env.MAINNET_SIGNER_ADDRESS)
+    : await fallbackSigner.getAddress();
+  const positionManager = hre.ethers.getAddress(
+    process.env.MAINNET_POSITION_MANAGER_ADDRESS ?? "0x73991a25c818bf1f1128deaab1492d45638de0d3",
+  );
 
   const block = await hre.ethers.provider.getBlockNumber();
   log(`=== Mainnet-fork simulation (chainId ${MAINNET_CHAIN_ID}, forked at block ${block}) ===`);
   log(`Deployer (fork account): ${await deployer.getAddress()}`);
   log(`Admin                  : ${admin}`);
   log(`Treasury               : ${treasury}`);
+  log(`Platform signer        : ${platformSigner}`);
+  log(`Position manager       : ${positionManager}`);
 
   // Sanity: the official Uniswap v3 factory must exist on the fork, proving we forked the right chain.
   const uniFactory = "0x1f7d7550b1b028f7571e69a784071f0205fd2efa";
   const uniCode = await hre.ethers.provider.getCode(uniFactory);
   log(`Uniswap v3 factory bytecode present on fork: ${uniCode !== "0x"}`);
   if (uniCode === "0x") throw new Error("Fork does not look like Robinhood Chain mainnet.");
+  if ((await hre.ethers.provider.getCode(positionManager)) === "0x") {
+    throw new Error("Uniswap v3 position manager has no bytecode on the fork.");
+  }
 
-  const record = await runDeployment(hre, deployer, { admin, treasury }, { simulation: true, log });
+  const record = await runDeployment(
+    hre,
+    deployer,
+    { admin, treasury, platformSigner, positionManager },
+    { simulation: true, log },
+  );
 
   log("");
   log("Validating simulated state ...");
@@ -52,11 +68,43 @@ async function main() {
   // Exercise the user flow once on the fork: mint a passport and pair a token.
   const registry = await hre.ethers.getContractAt("YardSaleAssetRegistry", record.contracts.registry!.address);
   const factory = await hre.ethers.getContractAt("YardTokenFactory", record.contracts.factory!.address);
-  const seller = (await hre.ethers.getSigners())[3];
+  const signers = await hre.ethers.getSigners();
+  const seller = signers[3];
+  const signerAccount = signers[2];
   const listingId = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("simulation-listing"));
   const sellerRegistry = registry.connect(seller) as unknown as Contract;
   const sellerFactory = factory.connect(seller) as unknown as Contract;
-  const mintTx = await sellerRegistry.mintPassport(await seller.getAddress(), listingId, "ipfs://simulation", hre.ethers.id("m"), hre.ethers.id("t"));
+  const uri = "ipfs://simulation";
+  const voucher = {
+    seller: await seller.getAddress(),
+    listingId,
+    metadataURIHash: hre.ethers.keccak256(hre.ethers.toUtf8Bytes(uri)),
+    metadataHash: hre.ethers.id("m"),
+    termsHash: hre.ethers.id("t"),
+    nonce: 0n,
+    expiry: BigInt((await hre.ethers.provider.getBlock("latest"))!.timestamp + 3600),
+  };
+  const signature = await signerAccount.signTypedData(
+    {
+      name: "YARD SALE Item Passport",
+      version: "1",
+      chainId: MAINNET_CHAIN_ID,
+      verifyingContract: await registry.getAddress(),
+    },
+    {
+      MintVoucher: [
+        { name: "seller", type: "address" },
+        { name: "listingId", type: "bytes32" },
+        { name: "metadataURIHash", type: "bytes32" },
+        { name: "metadataHash", type: "bytes32" },
+        { name: "termsHash", type: "bytes32" },
+        { name: "nonce", type: "uint256" },
+        { name: "expiry", type: "uint256" },
+      ],
+    },
+    voucher,
+  );
+  const mintTx = await sellerRegistry.mintPassport(voucher, uri, signature);
   await mintTx.wait();
   const tokenId = await registry.tokenIdForListing(listingId);
   const createTx = await sellerFactory.createCompanionToken(tokenId, "Sim Token", "SIM", hre.ethers.parseEther("1000"), hre.ethers.parseEther("400"));
