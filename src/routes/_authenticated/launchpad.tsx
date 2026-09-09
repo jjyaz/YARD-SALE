@@ -653,7 +653,7 @@ function Launchpad() {
                 {passport ? (
                   <div className="space-y-1">
                     <Field label="Metadata URI" value={passport.metadata_uri} />
-                    {passport.ipfs_cid ? (
+                    {passport.ipfs_cid && passport.ipfs_pinned_at ? (
                       <Field
                         label="IPFS"
                         value={
@@ -664,6 +664,16 @@ function Launchpad() {
                             </a>
                           </>
                         }
+                      />
+                    ) : passport.ipfs_cid ? (
+                      <Field
+                        label="IPFS"
+                        value={
+                          <>
+                            <span className="font-mono">{passport.ipfs_cid}</span> — content ID computed locally but not pinned (no PINATA_JWT configured). The metadata is stored in YARD SALE storage and its hash is on-chain; a gateway will not serve this CID until it is pinned.
+                          </>
+                        }
+                        mono={false}
                       />
                     ) : (
                       <Field label="IPFS" value="Not pinned (no PINATA_JWT configured) — metadata is stored in YARD SALE storage and its hash is on-chain" mono={false} />
