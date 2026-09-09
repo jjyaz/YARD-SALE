@@ -190,8 +190,9 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
       terms_version: listing.terms_version,
       mediaCount: media?.length ?? 0,
       hasConfirmedPassport: false,
+      termsKnown: listing.terms_version ? Boolean(terms) : undefined,
     });
-    if (!eligibility.eligible) throw new Error(`This listing is not eligible: ${eligibility.reason}.`);
+    if (!eligibility.eligible) throw new Error(`This listing is not eligible: ${eligibilityLabel[eligibility.reason]}.`);
     if (!terms) throw new Error(`Terms version ${listing.terms_version} was not found, so the terms hash cannot be computed.`);
 
     // The terms hash commits to the exact wording the seller accepted.
