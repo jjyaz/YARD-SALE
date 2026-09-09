@@ -615,10 +615,15 @@ function SellWizard() {
                 />
                 <span>
                   I own this item or have the right to sell it, it is not prohibited, and I accept
-                  the terms of use (version {TERMS_VERSION}).
+                  the terms of use{terms ? ` (version ${terms.version})` : ""}.
                 </span>
               </label>
             </div>
+            {termsError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {termsError} Publishing is paused until the terms can be loaded.
+              </p>
+            ) : null}
             {!canPublish ? (
               <p className="text-sm text-warning">
                 Add the missing details above before publishing.
