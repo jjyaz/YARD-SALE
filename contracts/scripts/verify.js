@@ -5,7 +5,8 @@ const hre = require("hardhat");
 
 async function main() {
   const file = path.join(__dirname, "..", "deployments", `${hre.network.name}.json`);
-  if (!fs.existsSync(file)) throw new Error(`No deployment record at ${file}. Run the deploy script first.`);
+  if (!fs.existsSync(file))
+    throw new Error(`No deployment record at ${file}. Run the deploy script first.`);
   const d = JSON.parse(fs.readFileSync(file, "utf8"));
 
   await hre.run("verify:verify", { address: d.implementation, constructorArguments: [] });

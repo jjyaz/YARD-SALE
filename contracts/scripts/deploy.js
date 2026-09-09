@@ -9,14 +9,28 @@ async function main() {
 
   const admin = process.env.ADMIN_ADDRESS || deployer.address;
   const treasury = process.env.TREASURY_ADDRESS || deployer.address;
+  // The registry only mints against EIP-712 vouchers signed by this address. Without it nothing can mint.
+  const platformSigner = process.env.SIGNER_ADDRESS;
+  if (!platformSigner) {
+    throw new Error(
+      "Set SIGNER_ADDRESS (the platform voucher signer's public address) in contracts/.env.",
+    );
+  }
+  const positionManager = process.env.POSITION_MANAGER_ADDRESS || "";
   const net = await hre.ethers.provider.getNetwork();
 
   console.log(`Network   : ${hre.network.name} (chainId ${net.chainId})`);
   console.log(`Deployer  : ${deployer.address}`);
   console.log(`Admin     : ${admin}`);
   console.log(`Treasury  : ${treasury}`);
+  console.log(`Signer    : ${platformSigner}`);
+  console.log(`PosMgr    : ${positionManager || "(none — liquidity locker skipped)"}`);
 
-  if (net.chainId !== 46630n && hre.network.name !== "hardhat" && hre.network.name !== "localhost") {
+  if (
+    net.chainId !== 46630n &&
+    hre.network.name !== "hardhat" &&
+    hre.network.name !== "localhost"
+  ) {
     throw new Error(
       `Refusing to deploy to chainId ${net.chainId}. This script is testnet-only; use scripts/deploy-mainnet.ts for 4663.`,
     );
@@ -40,6 +54,22 @@ async function main() {
   const factoryAddress = await factory.getAddress();
   console.log(`YardTokenFactory         : ${factoryAddress}`);
 
+  let lockerAddress = null;
+  if (positionManager) {
+    if ((await hre.ethers.provider.getCode(positionManager)) === "0x") {
+      throw new Error(`No bytecode at POSITION_MANAGER_ADDRESS ${positionManager}.`);
+    }
+    const Locker = await hre.ethers.getContractFactory("YardLiquidityLocker");
+    const locker = await Locker.deploy(positionManager);
+    await locker.waitForDeployment();
+    lockerAddress = await locker.getAddress();
+    console.log(`YardLiquidityLocker      : ${lockerAddress}`);
+  }
+
+  const SIGNER_ROLE = await registry.SIGNER_ROLE();
+  await (await registry.grantRole(SIGNER_ROLE, platformSigner)).wait();
+  console.log(`Granted SIGNER_ROLE to ${platformSigner}.`);
+
   const PAIRING_ROLE = await registry.PAIRING_ROLE();
   await (await registry.grantRole(PAIRING_ROLE, factoryAddress)).wait();
   console.log("Granted PAIRING_ROLE to the factory.");
@@ -48,7 +78,9 @@ async function main() {
     const DEFAULT_ADMIN_ROLE = await registry.DEFAULT_ADMIN_ROLE();
     await (await registry.grantRole(DEFAULT_ADMIN_ROLE, admin)).wait();
     await (await factory.grantRole(DEFAULT_ADMIN_ROLE, admin)).wait();
-    console.log(`Granted DEFAULT_ADMIN_ROLE on both contracts to ${admin}. Deployer roles kept for testnet convenience.`);
+    console.log(
+      `Granted DEFAULT_ADMIN_ROLE on both contracts to ${admin}. Deployer roles kept for testnet convenience.`,
+    );
   }
 
   const out = {
@@ -57,6 +89,9 @@ async function main() {
     deployer: deployer.address,
     admin,
     treasury,
+    platformSigner,
+    positionManager: positionManager || null,
+    locker: lockerAddress,
     implementation: implAddress,
     registry: registryAddress,
     factory: factoryAddress,
@@ -70,6 +105,7 @@ async function main() {
   console.log(`VITE_DEFAULT_CHAIN_ID=46630`);
   console.log(`VITE_ASSET_REGISTRY_ADDRESS=${registryAddress}`);
   console.log(`VITE_TOKEN_FACTORY_ADDRESS=${factoryAddress}`);
+  if (lockerAddress) console.log(`VITE_LIQUIDITY_LOCKER_ADDRESS=${lockerAddress}`);
 }
 
 main().catch((error) => {

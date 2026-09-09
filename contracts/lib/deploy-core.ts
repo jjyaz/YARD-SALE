@@ -14,13 +14,20 @@
  * never leave an untracked contract on chain. Re-running the script reuses whatever the manifest
  * already records and continues from the first missing step.
  */
+import { ethers } from "ethers";
 import * as fs from "fs";
 import * as path from "path";
 import type { HardhatRuntimeEnvironment } from "hardhat/types";
 import type { Contract, ContractTransactionReceipt, Signer } from "ethers";
 
 export const MAINNET_CHAIN_ID = 4663n;
-export const ZERO = "0x0000000000000000000000000000000000000000";
+export type TransactionReceiptLike = {
+  hash: string;
+  blockNumber: number;
+  status?: null | number;
+} | null;
+
+const ZERO = "0x0000000000000000000000000000000000000000";
 /** Multiplier applied to the raw gas estimate before comparing against the deployer balance. */
 export const COST_SAFETY_MARGIN = 150n; // percent
 
@@ -49,8 +56,19 @@ export type RoleTx = {
   blockNumber: number;
 };
 
+export type PendingTx = {
+  step: string;
+  txHash: string;
+  broadcastAt: string;
+};
+
+export type AdminMultisig = {
+  threshold: number;
+  owners: string[];
+};
+
 export type DeploymentRecord = {
-  schema: "yardsale-deployment/2";
+  schema: "yardsale-deployment/3";
   status: "not_deployed" | "in_progress" | "deployed" | "simulated";
   network: string;
   chainId: number;
@@ -59,6 +77,10 @@ export type DeploymentRecord = {
   treasury: string | null;
   platformSigner: string | null;
   positionManager: string | null;
+  /** Threshold and owner set read from the administrator multisig at deployment time. */
+  adminMultisig: AdminMultisig | null;
+  /** Broadcast but not yet confirmed. Written before waiting so a crash is recoverable. */
+  pendingTransactions: PendingTx[];
   contracts: {
     implementation?: DeployedContract;
     registry?: DeployedContract;
@@ -79,6 +101,8 @@ export type DeployInputs = {
   platformSigner: string;
   /** Uniswap V3 NonfungiblePositionManager the locker will accept. Optional: skips the locker. */
   positionManager?: string;
+  /** Verified threshold/owners of the administrator multisig, recorded in the manifest. */
+  adminMultisig?: AdminMultisig;
 };
 
 export type DeployOptions = {
@@ -95,10 +119,14 @@ export function deploymentsPath(hre: HardhatRuntimeEnvironment, chainId: bigint 
   return path.join(hre.config.paths.root, "deployments", `${chainId}.json`);
 }
 
-export function emptyRecord(hre: HardhatRuntimeEnvironment, chainId: number, network: string): DeploymentRecord {
+export function emptyRecord(
+  hre: HardhatRuntimeEnvironment,
+  chainId: number,
+  network: string,
+): DeploymentRecord {
   const solc = hre.config.solidity.compilers[0];
   return {
-    schema: "yardsale-deployment/2",
+    schema: "yardsale-deployment/3",
     status: "not_deployed",
     network,
     chainId,
@@ -107,6 +135,8 @@ export function emptyRecord(hre: HardhatRuntimeEnvironment, chainId: number, net
     treasury: null,
     platformSigner: null,
     positionManager: null,
+    adminMultisig: null,
+    pendingTransactions: [],
     contracts: {},
     roleTransactions: [],
     deployerRolesRenounced: false,
@@ -121,7 +151,10 @@ export function emptyRecord(hre: HardhatRuntimeEnvironment, chainId: number, net
   };
 }
 
-export function readRecord(hre: HardhatRuntimeEnvironment, chainId: bigint | number): DeploymentRecord | null {
+export function readRecord(
+  hre: HardhatRuntimeEnvironment,
+  chainId: bigint | number,
+): DeploymentRecord | null {
   const file = deploymentsPath(hre, chainId);
   if (!fs.existsSync(file)) return null;
   return JSON.parse(fs.readFileSync(file, "utf8")) as DeploymentRecord;
@@ -135,7 +168,6 @@ export function writeRecord(hre: HardhatRuntimeEnvironment, record: DeploymentRe
 }
 
 export function requireAddressEnv(name: string, fallback?: string): string {
-  const { ethers } = require("ethers") as typeof import("ethers");
   const value = (process.env[name] || fallback || "").trim();
   if (!value) throw new Error(`${name} is required.`);
   if (!ethers.isAddress(value)) throw new Error(`${name} is not a valid address: ${value}`);
@@ -143,12 +175,22 @@ export function requireAddressEnv(name: string, fallback?: string): string {
   return ethers.getAddress(value);
 }
 
-/** The permanent administrator must be a contract (multisig), and must not be the deployer. */
+/** Minimal Gnosis-Safe-compatible multisig surface every acceptable administrator must expose. */
+const MULTISIG_ABI = [
+  "function getThreshold() view returns (uint256)",
+  "function getOwners() view returns (address[])",
+];
+
+/**
+ * The permanent administrator must be a real multisig: a contract exposing a nonzero threshold and
+ * a documented owner set of at least that size. Merely "being a contract" is not enough — a
+ * single-owner proxy or an arbitrary contract would leave the platform with one point of failure.
+ */
 export async function requireMultisigAdmin(
   hre: HardhatRuntimeEnvironment,
   admin: string,
   deployer: string,
-): Promise<void> {
+): Promise<AdminMultisig> {
   if (admin.toLowerCase() === deployer.toLowerCase()) {
     throw new Error(
       "MAINNET_ADMIN_ADDRESS must not equal the deployer. The deployer key must end the deployment powerless.",
@@ -161,9 +203,48 @@ export async function requireMultisigAdmin(
         "a single EOA is not an acceptable permanent admin for mainnet.",
     );
   }
+
+  const safe = new hre.ethers.Contract(admin, MULTISIG_ABI, hre.ethers.provider);
+  let threshold: bigint;
+  let owners: string[];
+  try {
+    threshold = (await safe.getThreshold()) as bigint;
+    owners = (await safe.getOwners()) as string[];
+  } catch {
+    throw new Error(
+      `MAINNET_ADMIN_ADDRESS ${admin} is a contract but does not expose getThreshold()/getOwners(). ` +
+        "Use a Gnosis-Safe-compatible multisig so the owner set and threshold are verifiable on chain.",
+    );
+  }
+
+  const minimum = BigInt(process.env.MAINNET_ADMIN_MIN_THRESHOLD || "2");
+  if (threshold === 0n)
+    throw new Error(`Administrator multisig ${admin} reports a zero signing threshold.`);
+  if (threshold < minimum) {
+    throw new Error(
+      `Administrator multisig ${admin} has threshold ${threshold}, below the required ${minimum}. ` +
+        "Raise the Safe threshold, or set MAINNET_ADMIN_MIN_THRESHOLD deliberately.",
+    );
+  }
+  if (owners.length === 0) throw new Error(`Administrator multisig ${admin} reports no owners.`);
+  if (BigInt(owners.length) < threshold) {
+    throw new Error(
+      `Administrator multisig ${admin} has ${owners.length} owners but a threshold of ${threshold}.`,
+    );
+  }
+  const normalised = owners.map((o) => hre.ethers.getAddress(o));
+  if (normalised.some((o) => o.toLowerCase() === deployer.toLowerCase()) && normalised.length < 2) {
+    throw new Error(
+      `Administrator multisig ${admin} is effectively controlled by the deployer alone.`,
+    );
+  }
+  return { threshold: Number(threshold), owners: normalised };
 }
 
-export async function requireChain(hre: HardhatRuntimeEnvironment, expected: bigint): Promise<bigint> {
+export async function requireChain(
+  hre: HardhatRuntimeEnvironment,
+  expected: bigint,
+): Promise<bigint> {
   const net = await hre.ethers.provider.getNetwork();
   if (net.chainId !== expected) {
     throw new Error(
@@ -184,7 +265,8 @@ async function receiptOf(contract: Contract): Promise<ContractTransactionReceipt
   const tx = contract.deploymentTransaction();
   if (!tx) throw new Error("Missing deployment transaction.");
   const receipt = await tx.wait();
-  if (!receipt || receipt.status !== 1) throw new Error(`Deployment transaction ${tx.hash} failed.`);
+  if (!receipt || receipt.status !== 1)
+    throw new Error(`Deployment transaction ${tx.hash} failed.`);
   return receipt;
 }
 
@@ -206,11 +288,17 @@ export async function estimateDeploymentCost(
 
   const Impl = await ethers.getContractFactory("YardCompanionToken", deployer);
   const implTx = await Impl.getDeployTransaction();
-  perStep.push({ step: DEPLOY_ORDER[0], gas: await ethers.provider.estimateGas({ ...implTx, from }) });
+  perStep.push({
+    step: DEPLOY_ORDER[0],
+    gas: await ethers.provider.estimateGas({ ...implTx, from }),
+  });
 
   const Registry = await ethers.getContractFactory("YardSaleAssetRegistry", deployer);
   const registryTx = await Registry.getDeployTransaction(from);
-  perStep.push({ step: DEPLOY_ORDER[1], gas: await ethers.provider.estimateGas({ ...registryTx, from }) });
+  perStep.push({
+    step: DEPLOY_ORDER[1],
+    gas: await ethers.provider.estimateGas({ ...registryTx, from }),
+  });
 
   // The factory / locker constructors check that their dependencies have code, so their gas can only
   // be estimated once those exist. Conservative constants derived from local runs.
@@ -243,8 +331,43 @@ export async function runDeployment(
   const net = await ethers.provider.getNetwork();
 
   const resume = options.resumeFrom;
+  if (resume && resume.status === "in_progress") {
+    if (resume.schema !== "yardsale-deployment/3") {
+      throw new Error(
+        `deployments/${resume.chainId}.json uses schema ${resume.schema}; this tooling writes ` +
+          "yardsale-deployment/3. Migrate or move the manifest aside deliberately.",
+      );
+    }
+    const mismatches: string[] = [];
+    const same = (a: string | null | undefined, b: string | null | undefined) =>
+      (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+    if (resume.deployer && !same(resume.deployer, deployerAddress))
+      mismatches.push(`deployer ${resume.deployer} -> ${deployerAddress}`);
+    if (resume.admin && !same(resume.admin, inputs.admin))
+      mismatches.push(`admin ${resume.admin} -> ${inputs.admin}`);
+    if (resume.treasury && !same(resume.treasury, inputs.treasury))
+      mismatches.push(`treasury ${resume.treasury} -> ${inputs.treasury}`);
+    if (resume.platformSigner && !same(resume.platformSigner, inputs.platformSigner)) {
+      mismatches.push(`platform signer ${resume.platformSigner} -> ${inputs.platformSigner}`);
+    }
+    if (resume.positionManager && !same(resume.positionManager, inputs.positionManager ?? null)) {
+      mismatches.push(
+        `position manager ${resume.positionManager} -> ${inputs.positionManager ?? "(none)"}`,
+      );
+    }
+    if (Number(net.chainId) !== resume.chainId)
+      mismatches.push(`chain ${resume.chainId} -> ${net.chainId}`);
+    if (mismatches.length) {
+      throw new Error(
+        "Refusing to resume: the deployment inputs changed since the partial run.\n  " +
+          mismatches.join("\n  ") +
+          "\nContracts already deployed were configured with the recorded values. Finish or abandon that " +
+          "deployment deliberately instead of mixing two configurations.",
+      );
+    }
+  }
   const record: DeploymentRecord =
-    resume && resume.schema === "yardsale-deployment/2" && resume.status === "in_progress"
+    resume && resume.schema === "yardsale-deployment/3" && resume.status === "in_progress"
       ? resume
       : emptyRecord(hre, Number(net.chainId), hre.network.name);
   record.status = "in_progress";
@@ -253,20 +376,60 @@ export async function runDeployment(
   record.treasury = inputs.treasury;
   record.platformSigner = inputs.platformSigner;
   record.positionManager = inputs.positionManager ?? null;
+  if (inputs.adminMultisig) record.adminMultisig = inputs.adminMultisig;
+  record.pendingTransactions = record.pendingTransactions ?? [];
 
   const save = () => options.persist?.(record);
   save();
 
   const doneSteps = new Set(record.roleTransactions.map((r) => r.step));
-  const roleTx = async (step: string, send: () => Promise<{ wait: () => Promise<any> }>) => {
+  /** Records a broadcast hash BEFORE waiting, so a crash while waiting is always recoverable. */
+  const markPending = (step: string, txHash: string) => {
+    record.pendingTransactions = record.pendingTransactions.filter((p) => p.step !== step);
+    record.pendingTransactions.push({ step, txHash, broadcastAt: new Date().toISOString() });
+    save();
+  };
+  const clearPending = (step: string) => {
+    record.pendingTransactions = record.pendingTransactions.filter((p) => p.step !== step);
+  };
+  const roleTx = async (
+    step: string,
+    send: () => Promise<{ wait: () => Promise<TransactionReceiptLike>; hash?: string }>,
+  ) => {
     if (doneSteps.has(step)) {
       log(`      ${step} (already recorded, skipped)`);
       return;
     }
+    const pending = record.pendingTransactions.find((p) => p.step === step);
+    if (pending) {
+      const prior = await ethers.provider.getTransactionReceipt(pending.txHash);
+      if (prior && prior.status === 1) {
+        record.roleTransactions.push({ step, txHash: prior.hash, blockNumber: prior.blockNumber });
+        doneSteps.add(step);
+        clearPending(step);
+        save();
+        log(`      ${step} (recovered pending tx ${prior.hash})`);
+        return;
+      }
+      if (prior && prior.status !== 1) {
+        clearPending(step);
+        record.notes.push(`${step}: broadcast tx ${pending.txHash} reverted; retrying.`);
+      } else {
+        throw new Error(
+          `${step} was broadcast as ${pending.txHash} and is still unconfirmed. Wait for it to settle, ` +
+            "then re-run. Do not send a competing transaction.",
+        );
+      }
+    }
     const tx = await send();
+    if (tx.hash) markPending(step, tx.hash);
     const receipt = await tx.wait();
-    if (!receipt || receipt.status !== 1) throw new Error(`${step} failed (tx ${receipt?.hash ?? "?"})`);
+    if (!receipt) throw new Error(`${step}: transaction produced no receipt.`);
+    clearPending(step);
+    if (!receipt || receipt.status !== 1)
+      throw new Error(`${step} failed (tx ${receipt?.hash ?? "?"})`);
     record.roleTransactions.push({ step, txHash: receipt.hash, blockNumber: receipt.blockNumber });
+    doneSteps.add(step);
     save();
     log(`      ${step} (tx ${receipt.hash})`);
   };
@@ -284,13 +447,43 @@ export async function runDeployment(
         log(`      ${label} already deployed at ${existing.address} (resumed)`);
         return existing.address;
       }
-      record.notes.push(`Manifest recorded ${label} at ${existing.address} but there is no bytecode there; redeploying.`);
+      record.notes.push(
+        `Manifest recorded ${label} at ${existing.address} but there is no bytecode there; redeploying.`,
+      );
+    }
+    const pending = record.pendingTransactions.find((p) => p.step === label);
+    if (pending) {
+      const prior = await ethers.provider.getTransactionReceipt(pending.txHash);
+      if (prior && prior.status === 1 && prior.contractAddress) {
+        record.contracts[key] = {
+          address: prior.contractAddress,
+          txHash: prior.hash,
+          blockNumber: prior.blockNumber,
+          bytecodeHash: await bytecodeHash(hre, prior.contractAddress),
+          constructorArgs: args,
+        };
+        clearPending(label);
+        save();
+        log(`      ${label} recovered from broadcast tx ${prior.hash} at ${prior.contractAddress}`);
+        return prior.contractAddress;
+      }
+      if (!prior) {
+        throw new Error(
+          `${label} was broadcast as ${pending.txHash} and is still unconfirmed. Wait for it to settle, ` +
+            "then re-run so the deployment is never duplicated.",
+        );
+      }
+      clearPending(label);
+      record.notes.push(`${label}: broadcast tx ${pending.txHash} reverted; redeploying.`);
     }
     log(`Deploying ${label} ...`);
     const CF = await ethers.getContractFactory(factoryName, deployer);
     const c = await CF.deploy(...(args as never[]));
+    const broadcastHash = (c as unknown as Contract).deploymentTransaction()?.hash;
+    if (broadcastHash) markPending(label, broadcastHash);
     const receipt = await receiptOf(c as unknown as Contract);
     const address = await c.getAddress();
+    clearPending(label);
     record.contracts[key] = {
       address,
       txHash: receipt.hash,
@@ -304,7 +497,9 @@ export async function runDeployment(
   };
 
   const implAddress = await deployStep("implementation", DEPLOY_ORDER[0], "YardCompanionToken", []);
-  const registryAddress = await deployStep("registry", DEPLOY_ORDER[1], "YardSaleAssetRegistry", [deployerAddress]);
+  const registryAddress = await deployStep("registry", DEPLOY_ORDER[1], "YardSaleAssetRegistry", [
+    deployerAddress,
+  ]);
   const factoryAddress = await deployStep("factory", DEPLOY_ORDER[2], "YardTokenFactory", [
     deployerAddress,
     registryAddress,
@@ -327,9 +522,12 @@ export async function runDeployment(
 
   log(`${DEPLOY_ORDER[4]} ...`);
   if (!(await registry.hasRole(PAIRING_ROLE, factoryAddress))) {
-    await roleTx("registry.grantRole(PAIRING_ROLE, factory)", () => registry.grantRole(PAIRING_ROLE, factoryAddress));
+    await roleTx("registry.grantRole(PAIRING_ROLE, factory)", () =>
+      registry.grantRole(PAIRING_ROLE, factoryAddress),
+    );
   }
-  if (!(await registry.hasRole(PAIRING_ROLE, factoryAddress))) throw new Error("Factory did not receive PAIRING_ROLE.");
+  if (!(await registry.hasRole(PAIRING_ROLE, factoryAddress)))
+    throw new Error("Factory did not receive PAIRING_ROLE.");
 
   log(`${DEPLOY_ORDER[5]} ...`);
   if (!(await registry.hasRole(SIGNER_ROLE, inputs.platformSigner))) {
@@ -350,12 +548,18 @@ export async function runDeployment(
   await roleTx("registry.grantRole(DEFAULT_ADMIN_ROLE, admin)", () =>
     registry.grantRole(DEFAULT_ADMIN_ROLE, inputs.admin),
   );
-  await roleTx("registry.grantRole(PAUSER_ROLE, admin)", () => registry.grantRole(PAUSER_ROLE, inputs.admin));
-  await roleTx("registry.grantRole(STATUS_ROLE, admin)", () => registry.grantRole(STATUS_ROLE, inputs.admin));
+  await roleTx("registry.grantRole(PAUSER_ROLE, admin)", () =>
+    registry.grantRole(PAUSER_ROLE, inputs.admin),
+  );
+  await roleTx("registry.grantRole(STATUS_ROLE, admin)", () =>
+    registry.grantRole(STATUS_ROLE, inputs.admin),
+  );
   await roleTx("factory.grantRole(DEFAULT_ADMIN_ROLE, admin)", () =>
     factory.grantRole(DEFAULT_ADMIN_ROLE, inputs.admin),
   );
-  await roleTx("factory.grantRole(PAUSER_ROLE, admin)", () => factory.grantRole(FACTORY_PAUSER_ROLE, inputs.admin));
+  await roleTx("factory.grantRole(PAUSER_ROLE, admin)", () =>
+    factory.grantRole(FACTORY_PAUSER_ROLE, inputs.admin),
+  );
 
   // Confirm the administrator actually holds every role before the deployer lets go.
   const adminHas = await Promise.all([
@@ -366,7 +570,9 @@ export async function runDeployment(
     factory.hasRole(FACTORY_PAUSER_ROLE, inputs.admin),
   ]);
   if (adminHas.some((ok) => !ok)) {
-    throw new Error("Administrator is missing a role after the grants; deployer roles were NOT renounced.");
+    throw new Error(
+      "Administrator is missing a role after the grants; deployer roles were NOT renounced.",
+    );
   }
 
   log(`${DEPLOY_ORDER[7]} ...`);
@@ -410,7 +616,11 @@ export async function validateDeployment(
   const push = (check: string, ok: boolean, detail: string) => results.push({ check, ok, detail });
 
   const net = await ethers.provider.getNetwork();
-  push("chain id", Number(net.chainId) === record.chainId, `connected ${net.chainId}, record ${record.chainId}`);
+  push(
+    "chain id",
+    Number(net.chainId) === record.chainId,
+    `connected ${net.chainId}, record ${record.chainId}`,
+  );
 
   const { implementation, registry: reg, factory: fac, locker: lock } = record.contracts;
   if (!implementation || !reg || !fac) {
@@ -440,7 +650,11 @@ export async function validateDeployment(
   const impl = await ethers.getContractAt("YardCompanionToken", implementation.address);
 
   const factoryRegistry = await factory.registry();
-  push("factory.registry == registry", factoryRegistry.toLowerCase() === reg.address.toLowerCase(), factoryRegistry);
+  push(
+    "factory.registry == registry",
+    factoryRegistry.toLowerCase() === reg.address.toLowerCase(),
+    factoryRegistry,
+  );
   const factoryImpl = await factory.implementation();
   push(
     "factory.implementation == implementation",
@@ -450,7 +664,11 @@ export async function validateDeployment(
   const treasury = await factory.treasury();
   push("factory.treasury nonzero", treasury.toLowerCase() !== ZERO, treasury);
   if (record.treasury) {
-    push("factory.treasury matches record", treasury.toLowerCase() === record.treasury.toLowerCase(), treasury);
+    push(
+      "factory.treasury matches record",
+      treasury.toLowerCase() === record.treasury.toLowerCase(),
+      treasury,
+    );
     push(
       "treasury is not the deployer",
       !record.deployer || treasury.toLowerCase() !== record.deployer.toLowerCase(),
@@ -465,7 +683,11 @@ export async function validateDeployment(
   const DEFAULT_ADMIN_ROLE = await registry.DEFAULT_ADMIN_ROLE();
   const FACTORY_PAUSER_ROLE = await factory.PAUSER_ROLE();
 
-  push("registry grants PAIRING_ROLE to factory", await registry.hasRole(PAIRING_ROLE, fac.address), fac.address);
+  push(
+    "registry grants PAIRING_ROLE to factory",
+    await registry.hasRole(PAIRING_ROLE, fac.address),
+    fac.address,
+  );
 
   if (record.platformSigner) {
     push(
@@ -476,11 +698,31 @@ export async function validateDeployment(
   }
 
   if (record.admin) {
-    push("admin holds registry DEFAULT_ADMIN_ROLE", await registry.hasRole(DEFAULT_ADMIN_ROLE, record.admin), record.admin);
-    push("admin holds registry PAUSER_ROLE", await registry.hasRole(PAUSER_ROLE, record.admin), record.admin);
-    push("admin holds registry STATUS_ROLE", await registry.hasRole(STATUS_ROLE, record.admin), record.admin);
-    push("admin holds factory DEFAULT_ADMIN_ROLE", await factory.hasRole(DEFAULT_ADMIN_ROLE, record.admin), record.admin);
-    push("admin holds factory PAUSER_ROLE", await factory.hasRole(FACTORY_PAUSER_ROLE, record.admin), record.admin);
+    push(
+      "admin holds registry DEFAULT_ADMIN_ROLE",
+      await registry.hasRole(DEFAULT_ADMIN_ROLE, record.admin),
+      record.admin,
+    );
+    push(
+      "admin holds registry PAUSER_ROLE",
+      await registry.hasRole(PAUSER_ROLE, record.admin),
+      record.admin,
+    );
+    push(
+      "admin holds registry STATUS_ROLE",
+      await registry.hasRole(STATUS_ROLE, record.admin),
+      record.admin,
+    );
+    push(
+      "admin holds factory DEFAULT_ADMIN_ROLE",
+      await factory.hasRole(DEFAULT_ADMIN_ROLE, record.admin),
+      record.admin,
+    );
+    push(
+      "admin holds factory PAUSER_ROLE",
+      await factory.hasRole(FACTORY_PAUSER_ROLE, record.admin),
+      record.admin,
+    );
     push(
       "admin is not the deployer",
       !record.deployer || record.admin.toLowerCase() !== record.deployer.toLowerCase(),
@@ -498,7 +740,11 @@ export async function validateDeployment(
       factory.hasRole(DEFAULT_ADMIN_ROLE, record.deployer),
       factory.hasRole(FACTORY_PAUSER_ROLE, record.deployer),
     ]);
-    push("deployer holds no admin/pauser/status/pairing/signer role", !held.some(Boolean), record.deployer);
+    push(
+      "deployer holds no admin/pauser/status/pairing/signer role",
+      !held.some(Boolean),
+      record.deployer,
+    );
   }
 
   push("registry not paused", !(await registry.paused()), "");
@@ -520,13 +766,19 @@ export async function validateDeployment(
     );
     const pmCode = await ethers.provider.getCode(pm);
     push("locker position manager has bytecode", pmCode !== "0x", pm);
-    push("locker minimum lock is 180 days", (await locker.MIN_LOCK_DURATION()) === BigInt(180 * 24 * 60 * 60), "");
+    push(
+      "locker minimum lock is 180 days",
+      (await locker.MIN_LOCK_DURATION()) === BigInt(180 * 24 * 60 * 60),
+      "",
+    );
     const lockerFns = locker.interface.fragments
       .filter((f) => f.type === "function")
-      .map((f) => (f as { name: string }).name);
+      .map((f) => (f as unknown as { name: string }).name);
     push(
       "locker has no admin bypass",
-      !lockerFns.some((n) => ["owner", "grantRole", "sweep", "rescue", "emergencyWithdraw"].includes(n)),
+      !lockerFns.some((n) =>
+        ["owner", "grantRole", "sweep", "rescue", "emergencyWithdraw"].includes(n),
+      ),
       lockerFns.join(","),
     );
   }
@@ -534,7 +786,16 @@ export async function validateDeployment(
   // Implementation must be locked: initialize() has to revert.
   let implLocked = false;
   try {
-    await impl.initialize.staticCall("x", "X", 1n, 1n, record.deployer ?? fac.address, fac.address, reg.address, 1n);
+    await impl.initialize.staticCall(
+      "x",
+      "X",
+      1n,
+      1n,
+      record.deployer ?? fac.address,
+      fac.address,
+      reg.address,
+      1n,
+    );
   } catch {
     implLocked = true;
   }

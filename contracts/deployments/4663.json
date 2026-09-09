@@ -1,5 +1,5 @@
 {
-  "schema": "yardsale-deployment/2",
+  "schema": "yardsale-deployment/3",
   "status": "not_deployed",
   "network": "robinhoodMainnet",
   "chainId": 4663,
@@ -8,6 +8,8 @@
   "treasury": null,
   "platformSigner": null,
   "positionManager": null,
+  "adminMultisig": null,
+  "pendingTransactions": [],
   "contracts": {},
   "roleTransactions": [],
   "deployerRolesRenounced": false,
@@ -19,7 +21,7 @@
   },
   "deployedAt": null,
   "notes": [
-    "No mainnet deployment has been performed. scripts/deploy-mainnet.ts overwrites this file with real addresses, transaction hashes, block numbers and bytecode hashes after every confirmed step, so a partial failure leaves a resumable manifest rather than untracked contracts.",
+    "No mainnet deployment has been performed. scripts/deploy-mainnet.ts overwrites this file with real addresses, transaction hashes, block numbers and bytecode hashes after every confirmed step — and records a broadcast hash before waiting for its receipt — so a crash leaves a resumable manifest rather than untracked contracts.",
     "Never hand-edit addresses into this file. The app validates them against live chain state before enabling anything."
   ]
 }

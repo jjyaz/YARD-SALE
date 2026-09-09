@@ -1,9 +1,23 @@
+import "chai-as-promised";
 import { expect } from "chai";
 import hre from "hardhat";
 import type { Contract } from "ethers";
-import { runDeployment, validateDeployment, emptyRecord, type DeploymentRecord } from "../lib/deploy-core";
+import {
+  runDeployment,
+  validateDeployment,
+  emptyRecord,
+  requireMultisigAdmin,
+  type DeploymentRecord,
+} from "../lib/deploy-core";
 
-const { makeVoucher } = require("./helpers/voucher");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { makeVoucher } = require("./helpers/voucher") as {
+  makeVoucher: (args: Record<string, unknown>) => Promise<{
+    voucher: Record<string, unknown>;
+    signature: string;
+    uri: string;
+  }>;
+};
 
 const EXPECTED_ROLE_STEPS = [
   "registry.grantRole(PAIRING_ROLE, factory)",
@@ -48,8 +62,12 @@ describe("Deployment core (local simulation)", () => {
     expect(record.deployerRolesRenounced).to.equal(true);
     expect(record.contracts.implementation?.address).to.match(/^0x[0-9a-fA-F]{40}$/);
     expect(record.contracts.locker?.address).to.match(/^0x[0-9a-fA-F]{40}$/);
-    expect(record.contracts.registry?.blockNumber).to.be.lessThan(record.contracts.factory!.blockNumber);
-    expect(record.contracts.implementation!.blockNumber).to.be.lessThan(record.contracts.registry!.blockNumber);
+    expect(record.contracts.registry?.blockNumber).to.be.lessThan(
+      record.contracts.factory!.blockNumber,
+    );
+    expect(record.contracts.implementation!.blockNumber).to.be.lessThan(
+      record.contracts.registry!.blockNumber,
+    );
     expect(record.roleTransactions.map((r) => r.step)).to.deep.equal(EXPECTED_ROLE_STEPS);
     expect(JSON.stringify(record)).to.not.match(/privateKey|mnemonic/i);
 
@@ -58,9 +76,16 @@ describe("Deployment core (local simulation)", () => {
     expect(failed, JSON.stringify(failed)).to.deep.equal([]);
 
     // The system works for a seller after handover, using a platform-signed voucher.
-    const registry = await hre.ethers.getContractAt("YardSaleAssetRegistry", record.contracts.registry!.address);
-    const factory = await hre.ethers.getContractAt("YardTokenFactory", record.contracts.factory!.address);
-    const as = (c: unknown, signer: unknown) => (c as Contract).connect(signer as never) as unknown as Contract;
+    const registry = await hre.ethers.getContractAt(
+      "YardSaleAssetRegistry",
+      record.contracts.registry!.address,
+    );
+    const factory = await hre.ethers.getContractAt(
+      "YardTokenFactory",
+      record.contracts.factory!.address,
+    );
+    const as = (c: unknown, signer: unknown) =>
+      (c as Contract).connect(signer as never) as unknown as Contract;
     const listing = hre.ethers.id("post-handover");
     const { voucher, signature, uri } = await makeVoucher({
       registry,
@@ -74,7 +99,9 @@ describe("Deployment core (local simulation)", () => {
     await as(registry, seller).mintPassport(voucher, uri, signature);
     const tokenId = await registry.tokenIdForListing(listing);
     await as(factory, seller).createCompanionToken(tokenId, "Post", "POST", 1000n, 1000n);
-    expect(await registry.companionTokenOf(tokenId)).to.equal(await factory.tokenForPassport(tokenId));
+    expect(await registry.companionTokenOf(tokenId)).to.equal(
+      await factory.tokenForPassport(tokenId),
+    );
 
     // Deployer can no longer administer anything, and can no longer authorize a mint.
     await expect(as(registry, deployer).pause()).to.be.revertedWithCustomError(
@@ -109,7 +136,11 @@ describe("Deployment core (local simulation)", () => {
       runDeployment(
         hre,
         deployer,
-        { admin: deployer.address, treasury: treasury.address, platformSigner: platformSigner.address },
+        {
+          admin: deployer.address,
+          treasury: treasury.address,
+          platformSigner: platformSigner.address,
+        },
         { simulation: true, log: () => {} },
       ),
     ).to.be.rejectedWith(/administrator address equals the deployer/);
@@ -125,7 +156,11 @@ describe("Deployment core (local simulation)", () => {
       await runDeployment(
         hre,
         deployer,
-        { admin: admin.address, treasury: treasury.address, platformSigner: platformSigner.address },
+        {
+          admin: admin.address,
+          treasury: treasury.address,
+          platformSigner: platformSigner.address,
+        },
         {
           simulation: true,
           log: () => {},
@@ -153,7 +188,9 @@ describe("Deployment core (local simulation)", () => {
       { simulation: true, log: () => {}, resumeFrom: before },
     );
     // Same addresses: nothing was redeployed.
-    expect(resumed.contracts.implementation!.address).to.equal(before.contracts.implementation!.address);
+    expect(resumed.contracts.implementation!.address).to.equal(
+      before.contracts.implementation!.address,
+    );
     expect(resumed.contracts.registry!.address).to.equal(before.contracts.registry!.address);
     expect(resumed.contracts.factory!.address).to.equal(before.contracts.factory!.address);
     expect(resumed.deployerRolesRenounced).to.equal(true);
@@ -166,5 +203,118 @@ describe("Deployment core (local simulation)", () => {
     const record = emptyRecord(hre, Number(net.chainId), hre.network.name);
     const checks = await validateDeployment(hre, record);
     expect(checks.some((c) => c.check === "record complete" && !c.ok)).to.equal(true);
+  });
+
+  it("ADVERSARIAL: refuses to resume when the deployment inputs changed", async () => {
+    const [deployer, admin, treasury, other, platformSigner] = await hre.ethers.getSigners();
+    let partial: DeploymentRecord | null = null;
+    try {
+      await runDeployment(
+        hre,
+        deployer,
+        {
+          admin: admin.address,
+          treasury: treasury.address,
+          platformSigner: platformSigner.address,
+        },
+        {
+          simulation: true,
+          log: () => {},
+          persist: (r) => {
+            partial = JSON.parse(JSON.stringify(r)) as DeploymentRecord;
+            if (r.contracts.registry) throw new Error("simulated crash after registry deploy");
+          },
+        },
+      );
+    } catch (e) {
+      expect((e as Error).message).to.contain("simulated crash");
+    }
+    const before = partial as unknown as DeploymentRecord;
+
+    for (const changed of [
+      { admin: other.address, treasury: treasury.address, platformSigner: platformSigner.address },
+      { admin: admin.address, treasury: other.address, platformSigner: platformSigner.address },
+      { admin: admin.address, treasury: treasury.address, platformSigner: other.address },
+    ]) {
+      await expect(
+        runDeployment(hre, deployer, changed, {
+          simulation: true,
+          log: () => {},
+          resumeFrom: before,
+        }),
+      ).to.be.rejectedWith(/inputs changed/);
+    }
+
+    // A different deployer signer is rejected too.
+    await expect(
+      runDeployment(
+        hre,
+        other,
+        {
+          admin: admin.address,
+          treasury: treasury.address,
+          platformSigner: platformSigner.address,
+        },
+        { simulation: true, log: () => {}, resumeFrom: before },
+      ),
+    ).to.be.rejectedWith(/inputs changed/);
+  });
+
+  it("records a broadcast hash before waiting for its receipt", async () => {
+    const [deployer, admin, treasury, , platformSigner] = await hre.ethers.getSigners();
+    let sawPending = false;
+    await runDeployment(
+      hre,
+      deployer,
+      { admin: admin.address, treasury: treasury.address, platformSigner: platformSigner.address },
+      {
+        simulation: true,
+        log: () => {},
+        persist: (r) => {
+          if (r.pendingTransactions.length > 0) sawPending = true;
+        },
+      },
+    );
+    expect(sawPending, "a broadcast hash must be persisted before its receipt is awaited").to.equal(
+      true,
+    );
+  });
+
+  it("ADVERSARIAL: only accepts a real multisig administrator", async () => {
+    const [deployer, a, b] = await hre.ethers.getSigners();
+    const Safe = await hre.ethers.getContractFactory("MockSafe");
+    const NotSafe = await hre.ethers.getContractFactory("NotASafe");
+
+    await expect(requireMultisigAdmin(hre, deployer.address, deployer.address)).to.be.rejectedWith(
+      /must not equal the deployer/,
+    );
+    await expect(requireMultisigAdmin(hre, a.address, deployer.address)).to.be.rejectedWith(
+      /has no bytecode/,
+    );
+
+    const plain = await NotSafe.deploy();
+    await expect(
+      requireMultisigAdmin(hre, await plain.getAddress(), deployer.address),
+    ).to.be.rejectedWith(/getThreshold\(\)\/getOwners\(\)/);
+
+    const zero = await Safe.deploy([a.address, b.address], 0);
+    await expect(
+      requireMultisigAdmin(hre, await zero.getAddress(), deployer.address),
+    ).to.be.rejectedWith(/zero signing threshold/);
+
+    const single = await Safe.deploy([a.address], 1);
+    await expect(
+      requireMultisigAdmin(hre, await single.getAddress(), deployer.address),
+    ).to.be.rejectedWith(/below the required 2/);
+
+    const impossible = await Safe.deploy([a.address, b.address], 5);
+    await expect(
+      requireMultisigAdmin(hre, await impossible.getAddress(), deployer.address),
+    ).to.be.rejectedWith(/2 owners but a threshold of 5/);
+
+    const good = await Safe.deploy([a.address, b.address], 2);
+    const info = await requireMultisigAdmin(hre, await good.getAddress(), deployer.address);
+    expect(info.threshold).to.equal(2);
+    expect(info.owners).to.deep.equal([a.address, b.address]);
   });
 });

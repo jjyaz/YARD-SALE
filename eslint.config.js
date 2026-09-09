@@ -7,7 +7,20 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   // Generated Supabase integration files are owned by the platform and must not be hand-edited.
-  { ignores: ["dist", ".output", ".vinxi", "src/integrations/supabase/previewAuthStorage.ts", "src/routeTree.gen.ts"] },
+  {
+    ignores: [
+      "dist",
+      ".output",
+      ".vinxi",
+      "src/integrations/supabase/previewAuthStorage.ts",
+      "src/routeTree.gen.ts",
+      "src/integrations/supabase/types.ts",
+      "contracts/typechain-types",
+      "contracts/artifacts",
+      "contracts/cache",
+      "contracts/coverage",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

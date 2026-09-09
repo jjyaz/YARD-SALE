@@ -9,13 +9,21 @@
  */
 import hre from "hardhat";
 import type { Contract } from "ethers";
-import { MAINNET_CHAIN_ID, printChecks, requireChain, runDeployment, validateDeployment } from "../lib/deploy-core";
+import {
+  MAINNET_CHAIN_ID,
+  printChecks,
+  requireChain,
+  runDeployment,
+  validateDeployment,
+} from "../lib/deploy-core";
 
 const log = (line: string) => console.log(line);
 
 async function main() {
   if (process.env.MAINNET_FORK !== "true") {
-    throw new Error("Set MAINNET_FORK=true (and RH_MAINNET_RPC_URL) so hardhat.config.ts forks mainnet.");
+    throw new Error(
+      "Set MAINNET_FORK=true (and RH_MAINNET_RPC_URL) so hardhat.config.ts forks mainnet.",
+    );
   }
   if (hre.network.name !== "hardhat") {
     throw new Error("The simulation must run on the in-process hardhat network, not a live one.");
@@ -66,8 +74,14 @@ async function main() {
   const ok = printChecks(checks, log);
 
   // Exercise the user flow once on the fork: mint a passport and pair a token.
-  const registry = await hre.ethers.getContractAt("YardSaleAssetRegistry", record.contracts.registry!.address);
-  const factory = await hre.ethers.getContractAt("YardTokenFactory", record.contracts.factory!.address);
+  const registry = await hre.ethers.getContractAt(
+    "YardSaleAssetRegistry",
+    record.contracts.registry!.address,
+  );
+  const factory = await hre.ethers.getContractAt(
+    "YardTokenFactory",
+    record.contracts.factory!.address,
+  );
   const signers = await hre.ethers.getSigners();
   const seller = signers[3];
   const signerAccount = signers[2];
@@ -107,7 +121,13 @@ async function main() {
   const mintTx = await sellerRegistry.mintPassport(voucher, uri, signature);
   await mintTx.wait();
   const tokenId = await registry.tokenIdForListing(listingId);
-  const createTx = await sellerFactory.createCompanionToken(tokenId, "Sim Token", "SIM", hre.ethers.parseEther("1000"), hre.ethers.parseEther("400"));
+  const createTx = await sellerFactory.createCompanionToken(
+    tokenId,
+    "Sim Token",
+    "SIM",
+    hre.ethers.parseEther("1000"),
+    hre.ethers.parseEther("400"),
+  );
   await createTx.wait();
   const token = await registry.companionTokenOf(tokenId);
   log(`Simulated passport #${tokenId} paired with ${token}`);

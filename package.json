@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:contracts": "cd contracts && npx hardhat test"
+    "test:contracts": "cd contracts && npx hardhat test",
+    "typecheck": "tsc --noEmit",
+    "test:run": "vitest run --reporter=default"
   },
   "overrides": {
     "rolldown": "1.2.1"

@@ -8,7 +8,12 @@
 import hre from "hardhat";
 import { MAINNET_CHAIN_ID, readRecord, requireChain } from "../lib/deploy-core";
 
-async function verify(name: string, address: string, constructorArguments: unknown[], contract: string) {
+async function verify(
+  name: string,
+  address: string,
+  constructorArguments: unknown[],
+  contract: string,
+) {
   console.log(`Verifying ${name} at ${address} ...`);
   try {
     await hre.run("verify:verify", { address, constructorArguments, contract });
@@ -44,7 +49,12 @@ async function main() {
     registry.constructorArgs,
     "contracts/YardSaleAssetRegistry.sol:YardSaleAssetRegistry",
   );
-  await verify("YardTokenFactory", factory.address, factory.constructorArgs, "contracts/YardTokenFactory.sol:YardTokenFactory");
+  await verify(
+    "YardTokenFactory",
+    factory.address,
+    factory.constructorArgs,
+    "contracts/YardTokenFactory.sol:YardTokenFactory",
+  );
   if (locker) {
     await verify(
       "YardLiquidityLocker",

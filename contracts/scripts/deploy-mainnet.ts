@@ -43,11 +43,12 @@ async function main() {
   await requireChain(hre, MAINNET_CHAIN_ID);
 
   const [deployer] = await ethers.getSigners();
-  if (!deployer) throw new Error("No deployer signer. Set MAINNET_DEPLOYER_PRIVATE_KEY in contracts/.env.");
+  if (!deployer)
+    throw new Error("No deployer signer. Set MAINNET_DEPLOYER_PRIVATE_KEY in contracts/.env.");
   const deployerAddress = await deployer.getAddress();
 
   const admin = requireAddressEnv("MAINNET_ADMIN_ADDRESS");
-  await requireMultisigAdmin(hre, admin, deployerAddress);
+  const adminMultisig = await requireMultisigAdmin(hre, admin, deployerAddress);
   const treasury = requireAddressEnv("MAINNET_TREASURY_ADDRESS", admin);
   const platformSigner = requireAddressEnv("MAINNET_SIGNER_ADDRESS");
   if (platformSigner.toLowerCase() === deployerAddress.toLowerCase()) {
@@ -58,7 +59,9 @@ async function main() {
     "0x73991a25c818bf1f1128deaab1492d45638de0d3",
   );
   if ((await ethers.provider.getCode(positionManager)) === "0x") {
-    throw new Error(`No bytecode at the configured Uniswap v3 position manager ${positionManager}.`);
+    throw new Error(
+      `No bytecode at the configured Uniswap v3 position manager ${positionManager}.`,
+    );
   }
 
   const existing = readRecord(hre, MAINNET_CHAIN_ID);
@@ -70,30 +73,46 @@ async function main() {
     );
   }
   const resumeFrom = existing && existing.status === "in_progress" ? existing : null;
+  if (resumeFrom?.pendingTransactions?.length) {
+    log("Unconfirmed broadcasts recorded from a previous run:");
+    resumeFrom.pendingTransactions.forEach((p) =>
+      log(`  ${p.step}  ${p.txHash}  (broadcast ${p.broadcastAt})`),
+    );
+  }
 
   const balance = await ethers.provider.getBalance(deployerAddress);
-  const inputs = { admin, treasury, platformSigner, positionManager };
+  const inputs = { admin, treasury, platformSigner, positionManager, adminMultisig };
   const estimate = await estimateDeploymentCost(hre, deployer, inputs);
 
   log("=== YARD SALE mainnet deployment plan ===");
   log(`Network             : Robinhood Chain (chainId ${MAINNET_CHAIN_ID})`);
-  log(`RPC                 : ${process.env.RH_MAINNET_RPC_URL ? "RH_MAINNET_RPC_URL (set)" : "default public RPC"}`);
+  log(
+    `RPC                 : ${process.env.RH_MAINNET_RPC_URL ? "RH_MAINNET_RPC_URL (set)" : "default public RPC"}`,
+  );
   log(`Deployer            : ${deployerAddress}`);
   log(`Deployer balance    : ${ethers.formatEther(balance)} ETH`);
   log(`Admin (multisig)    : ${admin}`);
+  log(`Admin threshold     : ${adminMultisig.threshold} of ${adminMultisig.owners.length} owners`);
+  adminMultisig.owners.forEach((o, i) => log(`  owner ${i + 1}            : ${o}`));
   log(`Treasury            : ${treasury}`);
   log(`Platform signer     : ${platformSigner}`);
   log(`Position manager    : ${positionManager}`);
   log(`Resuming            : ${resumeFrom ? "YES — continuing an in-progress manifest" : "no"}`);
-  log(`Est. gas            : ${estimate.gas.toString()} @ ${ethers.formatUnits(estimate.gasPrice, "gwei")} gwei`);
+  log(
+    `Est. gas            : ${estimate.gas.toString()} @ ${ethers.formatUnits(estimate.gasPrice, "gwei")} gwei`,
+  );
   log(`Est. cost           : ~${ethers.formatEther(estimate.wei)} ETH`);
-  log(`Required w/ margin  : ~${ethers.formatEther(estimate.weiWithMargin)} ETH (${COST_SAFETY_MARGIN}%)`);
+  log(
+    `Required w/ margin  : ~${ethers.formatEther(estimate.weiWithMargin)} ETH (${COST_SAFETY_MARGIN}%)`,
+  );
   log("Contract order      :");
   DEPLOY_ORDER.forEach((step, i) => log(`  ${i + 1}. ${step}`));
   log("Constructor args    :");
   log(`  YardCompanionToken()`);
   log(`  YardSaleAssetRegistry(admin=${deployerAddress})  -> roles handed to ${admin} afterwards`);
-  log(`  YardTokenFactory(admin=${deployerAddress}, registry=<step 2>, treasury=${treasury}, implementation=<step 1>)`);
+  log(
+    `  YardTokenFactory(admin=${deployerAddress}, registry=<step 2>, treasury=${treasury}, implementation=<step 1>)`,
+  );
   log(`  YardLiquidityLocker(positionManager=${positionManager})`);
   log("Per-step gas        :");
   estimate.perStep.forEach((s) => log(`  ${s.gas.toString().padStart(9)}  ${s.step}`));
@@ -129,7 +148,9 @@ async function main() {
   const checks = await validateDeployment(hre, record);
   const ok = printChecks(checks, log);
   if (!ok) {
-    record.notes.push("Post-deployment validation reported failures; investigate before activating the app.");
+    record.notes.push(
+      "Post-deployment validation reported failures; investigate before activating the app.",
+    );
   }
 
   const file = writeRecord(hre, record);
@@ -146,7 +167,9 @@ async function main() {
   log(`  VITE_TOKEN_FACTORY_ADDRESS=${record.contracts.factory?.address}`);
   log(`  VITE_LIQUIDITY_LOCKER_ADDRESS=${record.contracts.locker?.address ?? "<not deployed>"}`);
   log(`  VITE_ROBINHOOD_MAINNET_RPC_URL=<your mainnet RPC>`);
-  log(`  VITE_ENABLE_MAINNET=false   # flip to true only after the app's Status page shows every check green`);
+  log(
+    `  VITE_ENABLE_MAINNET=false   # flip to true only after the app's Status page shows every check green`,
+  );
   if (!ok) process.exitCode = 2;
 }
 
