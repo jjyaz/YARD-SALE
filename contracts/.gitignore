@@ -9,3 +9,5 @@ dist
 !.env.deploy.example
 deployments/*.local.json
 deployments/robinhoodTestnet.json
+deployments/localhost.json
+deployments/hardhat.json
