@@ -57,13 +57,19 @@ export const getTokenPage = createServerFn({ method: "POST" })
       };
     }
 
-    const [{ data: listing }, { data: offers }] = await Promise.all([
+    const [{ data: listing }, { data: offers }, { data: liquidity }] = await Promise.all([
       db.from("listings").select("id, slug, title, status, city, region").eq("id", token.listing_id).maybeSingle(),
       db
         .from("companion_token_offers")
         .select("id, amount_base_units, price_wei_per_token, note, seller_wallet, updated_at")
         .eq("token_id", token.id)
         .eq("status", "active"),
+      db
+        .from("liquidity_positions")
+        .select("pool_address, position_token_id, liquidity, fee_tier, tick_lower, tick_upper, token_amount, eth_amount, mint_tx_hash, chain_id, confirmed_at")
+        .eq("token_id", token.id)
+        .eq("status", "confirmed")
+        .maybeSingle(),
     ]);
 
     let onchain: {
@@ -124,6 +130,7 @@ export const getTokenPage = createServerFn({ method: "POST" })
       listing,
       offers: offers ?? [],
       onchain,
+      liquidity: liquidity ?? null,
     };
   });
 
