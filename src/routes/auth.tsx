@@ -109,8 +109,8 @@ function AuthPage() {
     <div className="mx-auto flex max-w-md flex-col px-4 py-16 sm:px-6">
       <h1 className="text-3xl font-extrabold">Sign in with your wallet</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        YARD SALE uses your EVM wallet on {defaultChain.name} as your account. No email, no
-        password — just one free signature.
+        YARD SALE uses your EVM wallet on {defaultChain.name} as your account. No email, no password
+        — just one free signature.
       </p>
 
       <div className="mt-8 rounded-xl border border-border bg-card p-6">

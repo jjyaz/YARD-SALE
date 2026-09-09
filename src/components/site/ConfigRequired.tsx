@@ -21,7 +21,10 @@ export function ConfigRequired({
         <div className="space-y-2">
           <p className="text-sm font-bold">{title}</p>
           <p className="text-sm text-muted-foreground">{reason}</p>
-          <Link to="/status" className="inline-block text-sm font-semibold underline underline-offset-4">
+          <Link
+            to="/status"
+            className="inline-block text-sm font-semibold underline underline-offset-4"
+          >
             See what is configured
           </Link>
         </div>

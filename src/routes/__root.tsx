@@ -21,7 +21,9 @@ function NotFoundComponent() {
     <div className="flex min-h-[60vh] items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-extrabold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">This corner of the yard is empty</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">
+          This corner of the yard is empty
+        </h2>
         <p className="mt-2 text-sm text-muted-foreground">
           The page you're looking for doesn't exist or the listing has been taken down.
         </p>
@@ -48,7 +50,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className="flex min-h-[60vh] items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">This page didn't load</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          This page didn't load
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Something went wrong on our end. You can try again or head back to the marketplace.
         </p>

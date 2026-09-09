@@ -64,7 +64,11 @@ type MediaRow = { id: string; storage_path: string | null; public_url: string | 
 const STEPS = ["Basics", "Photos", "Condition", "Price", "Pickup", "Review"];
 
 function slugify(title: string): string {
-  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
+  const base = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
   return `${base || "item"}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
@@ -93,13 +97,15 @@ function SellWizard() {
         if (active) setTerms(t);
       })
       .catch((error: unknown) => {
-        if (active) setTermsError(error instanceof Error ? error.message : "Could not load the current terms of use.");
+        if (active)
+          setTermsError(
+            error instanceof Error ? error.message : "Could not load the current terms of use.",
+          );
       });
     return () => {
       active = false;
     };
   }, []);
-
 
   // Load or create the draft row.
   useEffect(() => {
@@ -107,7 +113,11 @@ function SellWizard() {
     let active = true;
     (async () => {
       if (draftId) {
-        const { data } = await supabase.from("listings").select("*").eq("id", draftId).maybeSingle();
+        const { data } = await supabase
+          .from("listings")
+          .select("*")
+          .eq("id", draftId)
+          .maybeSingle();
         if (data && active) {
           setDraft({
             id: data.id,
@@ -154,36 +164,33 @@ function SellWizard() {
     };
   }, [user, draftId, navigate]);
 
-  const persist = useCallback(
-    async (next: Draft, nextStep: number) => {
-      setSaving(true);
-      const { error } = await supabase
-        .from("listings")
-        .update({
-          title: next.title,
-          description: next.description,
-          category: (next.category || null) as never,
-          condition: (next.condition || null) as never,
-          condition_notes: next.condition_notes || null,
-          brand: next.brand || null,
-          dimensions: next.dimensions || null,
-          price_eth: next.is_free ? 0 : Number(next.price_eth || 0),
-          price_wei: next.is_free ? 0 : Math.round(Number(next.price_eth || 0) * 1e18),
-          is_free: next.is_free,
-          city: next.city || null,
-          region: next.region || null,
-          postal_prefix: next.postal_prefix || null,
-          availability: next.availability || null,
-          accuracy_confirmed: next.accuracy_confirmed,
-          attestation_accepted: next.attestation_accepted,
-          wizard_step: nextStep,
-        })
-        .eq("id", next.id);
-      setSaving(false);
-      if (error) toast.error(error.message);
-    },
-    [],
-  );
+  const persist = useCallback(async (next: Draft, nextStep: number) => {
+    setSaving(true);
+    const { error } = await supabase
+      .from("listings")
+      .update({
+        title: next.title,
+        description: next.description,
+        category: (next.category || null) as never,
+        condition: (next.condition || null) as never,
+        condition_notes: next.condition_notes || null,
+        brand: next.brand || null,
+        dimensions: next.dimensions || null,
+        price_eth: next.is_free ? 0 : Number(next.price_eth || 0),
+        price_wei: next.is_free ? 0 : Math.round(Number(next.price_eth || 0) * 1e18),
+        is_free: next.is_free,
+        city: next.city || null,
+        region: next.region || null,
+        postal_prefix: next.postal_prefix || null,
+        availability: next.availability || null,
+        accuracy_confirmed: next.accuracy_confirmed,
+        attestation_accepted: next.attestation_accepted,
+        wizard_step: nextStep,
+      })
+      .eq("id", next.id);
+    setSaving(false);
+    if (error) toast.error(error.message);
+  }, []);
 
   function patch(changes: Partial<Draft>) {
     setDraft((prev) => {
@@ -252,7 +259,6 @@ function SellWizard() {
     }
   }
 
-
   async function removePhoto(row: MediaRow) {
     await supabase.from("listing_media").delete().eq("id", row.id);
     if (row.storage_path) await supabase.storage.from("listing-public").remove([row.storage_path]);
@@ -277,7 +283,9 @@ function SellWizard() {
   async function publish() {
     if (!draft) return;
     if (!terms) {
-      toast.error(termsError ?? "The current terms of use are still loading. Try again in a moment.");
+      toast.error(
+        termsError ?? "The current terms of use are still loading. Try again in a moment.",
+      );
       return;
     }
     setPublishing(true);
@@ -349,7 +357,9 @@ function SellWizard() {
                 onChange={(e) => patch({ description: e.target.value })}
                 placeholder="What it is, how you used it, why you're letting it go, and every flaw you can see."
               />
-              <p className="text-xs text-muted-foreground">At least 20 characters. Be honest about flaws.</p>
+              <p className="text-xs text-muted-foreground">
+                At least 20 characters. Be honest about flaws.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
@@ -408,7 +418,8 @@ function SellWizard() {
                 />
                 {uploading ? (
                   <p className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Uploading photos…
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Uploading
+                    photos…
                   </p>
                 ) : null}
               </div>
@@ -417,9 +428,16 @@ function SellWizard() {
             {media.length > 0 ? (
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {media.map((row) => (
-                  <li key={row.id} className="relative overflow-hidden rounded-lg border border-border">
+                  <li
+                    key={row.id}
+                    className="relative overflow-hidden rounded-lg border border-border"
+                  >
                     {row.public_url ? (
-                      <img src={row.public_url} alt="" className="aspect-[4/3] w-full object-cover" />
+                      <img
+                        src={row.public_url}
+                        alt=""
+                        className="aspect-[4/3] w-full object-cover"
+                      />
                     ) : (
                       <div className="aspect-[4/3] w-full bg-secondary" />
                     )}
@@ -472,7 +490,11 @@ function SellWizard() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="brand">Brand or maker</Label>
-                <Input id="brand" value={draft.brand} onChange={(e) => patch({ brand: e.target.value })} />
+                <Input
+                  id="brand"
+                  value={draft.brand}
+                  onChange={(e) => patch({ brand: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="dimensions">Dimensions</Label>
@@ -508,7 +530,8 @@ function SellWizard() {
                   placeholder="0.05"
                 />
                 <p className="text-xs text-muted-foreground">
-                  {approxFiat(Number(draft.price_eth || 0)) ?? "Enter a price to see an approximate value."}{" "}
+                  {approxFiat(Number(draft.price_eth || 0)) ??
+                    "Enter a price to see an approximate value."}{" "}
                   Fiat figures are rough estimates only.
                 </p>
               </div>
@@ -525,11 +548,19 @@ function SellWizard() {
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="city">City or town (public)</Label>
-                <Input id="city" value={draft.city} onChange={(e) => patch({ city: e.target.value })} />
+                <Input
+                  id="city"
+                  value={draft.city}
+                  onChange={(e) => patch({ city: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="region">Region (public)</Label>
-                <Input id="region" value={draft.region} onChange={(e) => patch({ region: e.target.value })} />
+                <Input
+                  id="region"
+                  value={draft.region}
+                  onChange={(e) => patch({ region: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="postal_prefix">Postcode prefix (public)</Label>

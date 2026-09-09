@@ -11,7 +11,9 @@ export function injectedProvider(): Eip1193 | null {
 export function requireProvider(): Eip1193 {
   const provider = injectedProvider();
   if (!provider) {
-    throw new Error("No browser wallet found. Install an EVM wallet extension, then reload this page.");
+    throw new Error(
+      "No browser wallet found. Install an EVM wallet extension, then reload this page.",
+    );
   }
   return provider;
 }
@@ -59,7 +61,9 @@ export async function ensureChain(chainId: number = activeChain.id): Promise<voi
   }
   const after = (await provider.request({ method: "eth_chainId" })) as string;
   if (after?.toLowerCase() !== hexId) {
-    throw new Error(`The wallet is still on chain ${Number.parseInt(after, 16)}. Switch to ${chain.name} (${chain.id}) and try again.`);
+    throw new Error(
+      `The wallet is still on chain ${Number.parseInt(after, 16)}. Switch to ${chain.name} (${chain.id}) and try again.`,
+    );
   }
 }
 
@@ -76,8 +80,12 @@ export async function sendTransaction(input: {
   const params: Record<string, string> = { from: input.from, to: input.to, data: input.data };
   if (input.value && input.value !== "0x0") params["value"] = input.value;
   if (input.gas) params["gas"] = input.gas;
-  const hash = (await provider.request({ method: "eth_sendTransaction", params: [params] })) as string;
-  if (!/^0x[a-fA-F0-9]{64}$/.test(hash)) throw new Error("The wallet did not return a transaction hash.");
+  const hash = (await provider.request({
+    method: "eth_sendTransaction",
+    params: [params],
+  })) as string;
+  if (!/^0x[a-fA-F0-9]{64}$/.test(hash))
+    throw new Error("The wallet did not return a transaction hash.");
   return hash;
 }
 

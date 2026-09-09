@@ -18,7 +18,9 @@ export const Route = createFileRoute("/profile/$handle")({
   },
   head: ({ loaderData }) => {
     if (!loaderData) {
-      return { meta: [{ title: "Seller not found — YARD SALE" }, { name: "robots", content: "noindex" }] };
+      return {
+        meta: [{ title: "Seller not found — YARD SALE" }, { name: "robots", content: "noindex" }],
+      };
     }
     const name = loaderData.profile.display_name ?? loaderData.profile.handle;
     return {
@@ -29,7 +31,10 @@ export const Route = createFileRoute("/profile/$handle")({
           content: `Second-hand items listed by ${name} on YARD SALE, available for local pickup.`,
         },
         { property: "og:title", content: `${name} on YARD SALE` },
-        { property: "og:description", content: `Listings from ${name}, available for local pickup.` },
+        {
+          property: "og:description",
+          content: `Listings from ${name}, available for local pickup.`,
+        },
       ],
     };
   },

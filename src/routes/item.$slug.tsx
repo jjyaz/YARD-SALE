@@ -70,7 +70,11 @@ function ItemDetail() {
           Browse
         </Link>
         <span aria-hidden="true"> / </span>
-        <Link to="/browse" search={{ category: listing.category ?? undefined }} className="underline underline-offset-4">
+        <Link
+          to="/browse"
+          search={{ category: listing.category ?? undefined }}
+          className="underline underline-offset-4"
+        >
           {categoryLabel(listing.category)}
         </Link>
       </nav>
@@ -99,7 +103,13 @@ function ItemDetail() {
                     index === activeIndex ? "border-grass-deep" : "border-border"
                   }`}
                 >
-                  <img src={src} alt="" width={200} height={160} className="h-full w-full object-cover" />
+                  <img
+                    src={src}
+                    alt=""
+                    width={200}
+                    height={160}
+                    className="h-full w-full object-cover"
+                  />
                 </button>
               ))}
             </div>
@@ -115,7 +125,9 @@ function ItemDetail() {
           <div className="flex flex-wrap gap-2">
             {listing.passport_minted ? <StatusChip tone="grass">Passport minted</StatusChip> : null}
             {listing.companion_token ? <StatusChip>Companion token</StatusChip> : null}
-            {listing.status === "reserved" ? <StatusChip tone="warning">Reserved</StatusChip> : null}
+            {listing.status === "reserved" ? (
+              <StatusChip tone="warning">Reserved</StatusChip>
+            ) : null}
             {soldOrGone ? <StatusChip>Gone</StatusChip> : null}
             {listing.is_demo ? <StatusChip>Demo listing</StatusChip> : null}
           </div>

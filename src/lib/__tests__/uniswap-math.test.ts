@@ -187,10 +187,18 @@ describe("buildLiquidityPlan", () => {
   });
 
   it("refuses zero amounts and more tokens than exist", () => {
-    const base = { tokenAddress: LOW_TOKEN, wethAddress: WETH, totalSupply: supply, slippageBps: 100, tickSpacing: 60 };
+    const base = {
+      tokenAddress: LOW_TOKEN,
+      wethAddress: WETH,
+      totalSupply: supply,
+      slippageBps: 100,
+      tickSpacing: 60,
+    };
     expect(() => buildLiquidityPlan({ ...base, tokenAmount: 0n, ethAmount: 1n })).toThrow();
     expect(() => buildLiquidityPlan({ ...base, tokenAmount: 1n, ethAmount: 0n })).toThrow();
-    expect(() => buildLiquidityPlan({ ...base, tokenAmount: supply + 1n, ethAmount: 1n })).toThrow(/exceeds/);
+    expect(() => buildLiquidityPlan({ ...base, tokenAmount: supply + 1n, ethAmount: 1n })).toThrow(
+      /exceeds/,
+    );
   });
 });
 
@@ -209,19 +217,36 @@ describe("stale liquidity quotes", () => {
 
   it("accepts a plan whose confirmed price is still within tolerance", () => {
     expect(() =>
-      requireFreshQuote({ acknowledged_pool_price_x96: base.toString(), sqrt_price_x96: base.toString(), slippage_bps: 300 }, (base * 1001n) / 1000n),
+      requireFreshQuote(
+        {
+          acknowledged_pool_price_x96: base.toString(),
+          sqrt_price_x96: base.toString(),
+          slippage_bps: 300,
+        },
+        (base * 1001n) / 1000n,
+      ),
     ).not.toThrow();
   });
 
   it("voids a plan whose confirmed price moved beyond tolerance", () => {
     expect(() =>
-      requireFreshQuote({ acknowledged_pool_price_x96: base.toString(), sqrt_price_x96: base.toString(), slippage_bps: 50 }, (base * 12n) / 10n),
+      requireFreshQuote(
+        {
+          acknowledged_pool_price_x96: base.toString(),
+          sqrt_price_x96: base.toString(),
+          slippage_bps: 50,
+        },
+        (base * 12n) / 10n,
+      ),
     ).toThrow(/quote is void/);
   });
 
   it("falls back to the planned opening price when no pool price was confirmed", () => {
     expect(() =>
-      requireFreshQuote({ acknowledged_pool_price_x96: null, sqrt_price_x96: base.toString(), slippage_bps: 100 }, base * 3n),
+      requireFreshQuote(
+        { acknowledged_pool_price_x96: null, sqrt_price_x96: base.toString(), slippage_bps: 100 },
+        base * 3n,
+      ),
     ).toThrow(/moved beyond/);
   });
 });

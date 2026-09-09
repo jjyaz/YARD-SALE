@@ -31,7 +31,9 @@ export const supportedChains = publicEnv.enableMainnet
 export function chainById(chainId: number) {
   if (chainId === ROBINHOOD_MAINNET_ID) return robinhoodMainnet;
   if (chainId === ROBINHOOD_TESTNET_ID) return robinhoodTestnet;
-  throw new Error(`Unsupported chain ${chainId}. Only Robinhood Chain (${ROBINHOOD_MAINNET_ID}) and its testnet (${ROBINHOOD_TESTNET_ID}) are supported.`);
+  throw new Error(
+    `Unsupported chain ${chainId}. Only Robinhood Chain (${ROBINHOOD_MAINNET_ID}) and its testnet (${ROBINHOOD_TESTNET_ID}) are supported.`,
+  );
 }
 
 /** The chain every read and write in the app targets. Mainnet only when explicitly enabled. */

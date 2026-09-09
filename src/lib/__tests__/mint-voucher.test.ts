@@ -32,7 +32,12 @@ function voucher(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 function domain(chainId: number, registry: string) {
-  return { name: EIP712_DOMAIN_NAME, version: EIP712_DOMAIN_VERSION, chainId, verifyingContract: registry as `0x${string}` };
+  return {
+    name: EIP712_DOMAIN_NAME,
+    version: EIP712_DOMAIN_VERSION,
+    chainId,
+    verifyingContract: registry as `0x${string}`,
+  };
 }
 
 describe("mint voucher signing", () => {
@@ -53,7 +58,11 @@ describe("mint voucher signing", () => {
 
   it("produces a signature recoverable to the platform signer", async () => {
     process.env["PLATFORM_SIGNER_PRIVATE_KEY"] = KEY;
-    const { signature, signer } = await signMintVoucher({ chainId: 4663, registry: REGISTRY, voucher: voucher() });
+    const { signature, signer } = await signMintVoucher({
+      chainId: 4663,
+      registry: REGISTRY,
+      voucher: voucher(),
+    });
     expect(signer).toBe(ACCOUNT.address);
     const recovered = await recoverTypedDataAddress({
       domain: domain(4663, REGISTRY),
@@ -67,7 +76,11 @@ describe("mint voucher signing", () => {
 
   it("ADVERSARIAL: a signature does not verify against another chain or another registry", async () => {
     process.env["PLATFORM_SIGNER_PRIVATE_KEY"] = KEY;
-    const { signature } = await signMintVoucher({ chainId: 4663, registry: REGISTRY, voucher: voucher() });
+    const { signature } = await signMintVoucher({
+      chainId: 4663,
+      registry: REGISTRY,
+      voucher: voucher(),
+    });
     const wrongChain = await recoverTypedDataAddress({
       domain: domain(46630, REGISTRY),
       types: MINT_VOUCHER_TYPES,
@@ -88,7 +101,11 @@ describe("mint voucher signing", () => {
 
   it("ADVERSARIAL: a voucher signed for one seller does not authorise another", async () => {
     process.env["PLATFORM_SIGNER_PRIVATE_KEY"] = KEY;
-    const { signature } = await signMintVoucher({ chainId: 4663, registry: REGISTRY, voucher: voucher() });
+    const { signature } = await signMintVoucher({
+      chainId: 4663,
+      registry: REGISTRY,
+      voucher: voucher(),
+    });
     const recovered = await recoverTypedDataAddress({
       domain: domain(4663, REGISTRY),
       types: MINT_VOUCHER_TYPES,

@@ -15,7 +15,6 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-
 import banner from "@/assets/yard-sale-banner.png.asset.json";
 import { yardImages } from "@/lib/demo-images";
 import { ListingCard } from "@/components/site/ListingCard";
@@ -88,10 +87,10 @@ function Home() {
           />
           <div className="flex flex-col gap-7 p-7 sm:p-12">
             <p className="prose-measure text-lg text-muted-foreground">
-              A neighbourhood marketplace for real second-hand things. List the lamp, meet the
-              buyer on the driveway — and when you're ready, turn the listing into a real-world
-              asset on-chain. Mint an Item Passport to prove what the thing is and where it's been,
-              then pair it with a companion token and launch it through the Launchpad.
+              A neighbourhood marketplace for real second-hand things. List the lamp, meet the buyer
+              on the driveway — and when you're ready, turn the listing into a real-world asset
+              on-chain. Mint an Item Passport to prove what the thing is and where it's been, then
+              pair it with a companion token and launch it through the Launchpad.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button asChild size="lg" className="rounded-xl">
@@ -178,8 +177,8 @@ function Home() {
             </p>
             <p className="prose-measure mt-3 text-sm text-muted-foreground">
               The chain never stores the photos themselves. It stores fingerprints — hashes — that
-              let anyone verify the on-chain record against the frozen file. Here's exactly where each
-              piece lives.
+              let anyone verify the on-chain record against the frozen file. Here's exactly where
+              each piece lives.
             </p>
           </div>
         </div>
@@ -197,7 +196,10 @@ function Home() {
             </div>
             <ul className="mt-5 space-y-3 text-sm text-muted-foreground">
               <li className="flex gap-2">
-                <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-grass-deep" />
+                <ShieldCheck
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-grass-deep"
+                />
                 <span>
                   The Item Passport token id and its owner — an ERC-721 proving the passport exists
                   and who holds it.
@@ -206,8 +208,8 @@ function Home() {
               <li className="flex gap-2">
                 <Hash aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-grass-deep" />
                 <span>
-                  The immutable listing id, metadata hash and terms hash — fingerprints so anyone can
-                  confirm the on-chain record matches the frozen file.
+                  The immutable listing id, metadata hash and terms hash — fingerprints so anyone
+                  can confirm the on-chain record matches the frozen file.
                 </span>
               </li>
               <li className="flex gap-2">
@@ -220,8 +222,8 @@ function Home() {
               <li className="flex gap-2">
                 <Coins aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-grass-deep" />
                 <span>
-                  For a launched companion token: its name, symbol, fixed total supply, balances, and
-                  the address permanently paired to one passport. No extra minting, ever.
+                  For a launched companion token: its name, symbol, fixed total supply, balances,
+                  and the address permanently paired to one passport. No extra minting, ever.
                 </span>
               </li>
             </ul>
@@ -239,31 +241,43 @@ function Home() {
             </div>
             <ul className="mt-5 space-y-3 text-sm text-muted-foreground">
               <li className="flex gap-2">
-                <ImageIcon aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <ImageIcon
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                />
                 <span>
-                  The actual photo files — full-resolution images, with a SHA-256 of each stored on-chain
-                  so they can't be swapped unnoticed.
+                  The actual photo files — full-resolution images, with a SHA-256 of each stored
+                  on-chain so they can't be swapped unnoticed.
                 </span>
               </li>
               <li className="flex gap-2">
-                <FileText aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <FileText
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                />
                 <span>
-                  The complete frozen passport metadata JSON: title, description, attributes, all image
-                  links, disclaimer and terms version.
+                  The complete frozen passport metadata JSON: title, description, attributes, all
+                  image links, disclaimer and terms version.
                 </span>
               </li>
               <li className="flex gap-2">
-                <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <ShieldCheck
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                />
                 <span>
-                  Listing terms, seller details, sale offers, and messages — none of this lives on the
-                  chain.
+                  Listing terms, seller details, sale offers, and messages — none of this lives on
+                  the chain.
                 </span>
               </li>
               <li className="flex gap-2">
-                <Database aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <Database
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                />
                 <span>
-                  Transaction receipts, block numbers and wallet records — kept only to reconcile and
-                  recover your on-chain state.
+                  Transaction receipts, block numbers and wallet records — kept only to reconcile
+                  and recover your on-chain state.
                 </span>
               </li>
             </ul>

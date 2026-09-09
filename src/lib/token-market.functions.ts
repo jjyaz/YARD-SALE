@@ -8,9 +8,13 @@ import { companionTokenAbi } from "@/lib/abi";
 import { COMPANION_TOKEN_DISCLAIMER } from "@/lib/passport-metadata";
 
 function publicDb() {
-  return createClient<Database>(process.env["SUPABASE_URL"]!, process.env["SUPABASE_PUBLISHABLE_KEY"]!, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-  });
+  return createClient<Database>(
+    process.env["SUPABASE_URL"]!,
+    process.env["SUPABASE_PUBLISHABLE_KEY"]!,
+    {
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+    },
+  );
 }
 
 async function chainClient() {
@@ -19,7 +23,8 @@ async function chainClient() {
 }
 
 function normalizeAddress(value: string): `0x${string}` {
-  if (!/^0x[a-fA-F0-9]{40}$/.test(value.trim())) throw new Error("That is not a valid wallet or token address.");
+  if (!/^0x[a-fA-F0-9]{40}$/.test(value.trim()))
+    throw new Error("That is not a valid wallet or token address.");
   return value.trim().toLowerCase() as `0x${string}`;
 }
 
@@ -58,7 +63,11 @@ export const getTokenPage = createServerFn({ method: "POST" })
     }
 
     const [{ data: listing }, { data: offers }, { data: liquidity }] = await Promise.all([
-      db.from("listings").select("id, slug, title, status, city, region").eq("id", token.listing_id).maybeSingle(),
+      db
+        .from("listings")
+        .select("id, slug, title, status, city, region")
+        .eq("id", token.listing_id)
+        .maybeSingle(),
       db
         .from("companion_token_offers")
         .select("id, amount_base_units, price_wei_per_token, note, seller_wallet, updated_at")
@@ -66,7 +75,9 @@ export const getTokenPage = createServerFn({ method: "POST" })
         .eq("status", "active"),
       db
         .from("liquidity_positions")
-        .select("pool_address, position_token_id, liquidity, fee_tier, tick_lower, tick_upper, token_amount, eth_amount, mint_tx_hash, chain_id, confirmed_at")
+        .select(
+          "pool_address, position_token_id, liquidity, fee_tier, tick_lower, tick_upper, token_amount, eth_amount, mint_tx_hash, chain_id, confirmed_at",
+        )
         .eq("token_id", token.id)
         .eq("status", "confirmed")
         .maybeSingle(),
@@ -115,10 +126,15 @@ export const getTokenPage = createServerFn({ method: "POST" })
         totalSupply: totalSupply.toString(),
         passportTokenId: passportTokenId.toString(),
         creatorBalance: creatorBalance.toString(),
-        ...(offerSellerBalance === undefined ? {} : { offerSellerBalance: offerSellerBalance.toString() }),
+        ...(offerSellerBalance === undefined
+          ? {}
+          : { offerSellerBalance: offerSellerBalance.toString() }),
       };
     } catch (error) {
-      onchain = { ok: false, error: error instanceof Error ? error.message : "Could not reach the network." };
+      onchain = {
+        ok: false,
+        error: error instanceof Error ? error.message : "Could not reach the network.",
+      };
     }
 
     return {
@@ -138,12 +154,19 @@ export const getTokenPage = createServerFn({ method: "POST" })
 
 export const upsertTokenOffer = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { tokenAddress: string; amountBaseUnits: string; priceWeiPerToken: string; note?: string }) => ({
-    tokenAddress: normalizeAddress(input.tokenAddress),
-    amountBaseUnits: input.amountBaseUnits,
-    priceWeiPerToken: input.priceWeiPerToken,
-    note: input.note?.slice(0, 500) ?? null,
-  }))
+  .inputValidator(
+    (input: {
+      tokenAddress: string;
+      amountBaseUnits: string;
+      priceWeiPerToken: string;
+      note?: string;
+    }) => ({
+      tokenAddress: normalizeAddress(input.tokenAddress),
+      amountBaseUnits: input.amountBaseUnits,
+      priceWeiPerToken: input.priceWeiPerToken,
+      note: input.note?.slice(0, 500) ?? null,
+    }),
+  )
   .handler(async ({ data, context }) => {
     const amount = positiveBaseUnits(data.amountBaseUnits, "The amount of tokens");
     const price = positiveBaseUnits(data.priceWeiPerToken, "The asking price");
@@ -154,8 +177,10 @@ export const upsertTokenOffer = createServerFn({ method: "POST" })
       .eq("token_address", data.tokenAddress)
       .maybeSingle();
     if (tokenError) throw new Error(tokenError.message);
-    if (!token || token.status !== "confirmed") throw new Error("That token has not been verified on-chain yet.");
-    if (token.user_id !== context.userId) throw new Error("Only the token creator can offer these tokens for sale.");
+    if (!token || token.status !== "confirmed")
+      throw new Error("That token has not been verified on-chain yet.");
+    if (token.user_id !== context.userId)
+      throw new Error("Only the token creator can offer these tokens for sale.");
 
     // Verify the seller really holds what they are offering.
     const client = await chainClient();
@@ -211,19 +236,28 @@ export const cancelTokenOffer = createServerFn({ method: "POST" })
 export const confirmTokenTransfer = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { tokenAddress: string; txHash: string }) => {
-    if (!/^0x[a-fA-F0-9]{64}$/.test(input.txHash)) throw new Error("That is not a valid transaction hash.");
-    return { tokenAddress: normalizeAddress(input.tokenAddress), txHash: input.txHash as `0x${string}` };
+    if (!/^0x[a-fA-F0-9]{64}$/.test(input.txHash))
+      throw new Error("That is not a valid transaction hash.");
+    return {
+      tokenAddress: normalizeAddress(input.tokenAddress),
+      txHash: input.txHash as `0x${string}`,
+    };
   })
   .handler(async ({ data }) => {
     const { decodeEventLog, getAddress } = await import("viem");
     const client = await chainClient();
     const receipt = await client.waitForTransactionReceipt({ hash: data.txHash, timeout: 90_000 });
-    if (receipt.status !== "success") throw new Error("That transfer reverted on-chain. No tokens moved.");
+    if (receipt.status !== "success")
+      throw new Error("That transfer reverted on-chain. No tokens moved.");
 
     for (const log of receipt.logs) {
       if (getAddress(log.address) !== getAddress(data.tokenAddress)) continue;
       try {
-        const decoded = decodeEventLog({ abi: companionTokenAbi, data: log.data, topics: log.topics });
+        const decoded = decodeEventLog({
+          abi: companionTokenAbi,
+          data: log.data,
+          topics: log.topics,
+        });
         if (decoded.eventName !== "Transfer") continue;
         const args = decoded.args as unknown as { from: string; to: string; value: bigint };
         return {

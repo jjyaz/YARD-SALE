@@ -112,14 +112,24 @@ export function SiteHeader() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button asChild variant="outline" size="sm" className="hidden h-10 rounded-xl px-4 sm:inline-flex">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="hidden h-10 rounded-xl px-4 sm:inline-flex"
+            >
               <Link to="/auth">Sign in</Link>
             </Button>
           )}
 
           <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl lg:hidden" aria-label="Open menu">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 rounded-xl lg:hidden"
+                aria-label="Open menu"
+              >
                 <Menu className="h-4 w-4" />
               </Button>
             </SheetTrigger>

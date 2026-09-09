@@ -90,7 +90,12 @@ function Dashboard() {
         </TabsContent>
 
         <TabsContent value="drafts">
-          <ListingTable rows={drafts} loading={listings.isLoading} empty="No drafts in progress." draft />
+          <ListingTable
+            rows={drafts}
+            loading={listings.isLoading}
+            empty="No drafts in progress."
+            draft
+          />
         </TabsContent>
 
         <TabsContent value="saved">
@@ -145,10 +150,18 @@ function ListingTable({
   draft?: boolean;
 }) {
   if (loading) {
-    return <p className="mt-4 rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">Loading…</p>;
+    return (
+      <p className="mt-4 rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+        Loading…
+      </p>
+    );
   }
   if (rows.length === 0) {
-    return <p className="mt-4 rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">{empty}</p>;
+    return (
+      <p className="mt-4 rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+        {empty}
+      </p>
+    );
   }
   return (
     <ul className="mt-4 divide-y divide-border rounded-xl border border-border bg-card">
