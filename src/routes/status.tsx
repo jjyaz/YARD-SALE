@@ -287,13 +287,30 @@ function StatusPage() {
 
             <section className="rounded-xl border border-warning/40 bg-warning/5 p-6">
               <h2 className="text-lg font-bold">Unaudited beta</h2>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Item Passport minting and Companion Token launches only run when every deployment
-                check above passes; Uniswap liquidity only on mainnet with the official deployment
-                verified. Escrow and liquidity locking are not built yet. The contracts have not
-                been independently audited. There are no simulated transactions anywhere in this
-                app.
-              </p>
+              <dl className="mt-3 space-y-2 text-sm text-muted-foreground">
+                <div>
+                  <dt className="font-semibold text-foreground">Built and tested</dt>
+                  <dd>
+                    Item Passports (mint only with a platform-signed authorisation), fixed-supply
+                    Companion Tokens, Uniswap v3 liquidity, and a 180-day-minimum liquidity locker.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-foreground">Deployed</dt>
+                  <dd>Nothing yet. Every address above must be configured before any action is offered.</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-foreground">Verified</dt>
+                  <dd>
+                    Each action is confirmed from live chain state — receipts, events, owners,
+                    hashes and contract pointers — never from a receipt alone.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-foreground">Independently audited</dt>
+                  <dd>No. Not built yet: escrow. There are no simulated transactions anywhere in this app.</dd>
+                </div>
+              </dl>
             </section>
           </aside>
         </div>
