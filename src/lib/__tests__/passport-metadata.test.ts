@@ -109,6 +109,21 @@ describe("passportEligibility", () => {
       reason: "already_minted",
     });
   });
+
+  it("rejects a listing whose terms version no longer resolves to a real terms row", () => {
+    // A stale version means the immutable on-chain terms hash could never be computed.
+    expect(passportEligibility({ ...ok, termsKnown: false }).reason).toBe("unknown_terms");
+    expect(passportEligibility({ ...ok, termsKnown: true }).reason).toBe("ok");
+    expect(passportEligibility({ ...ok, termsKnown: undefined }).reason).toBe("ok");
+  });
+
+  it("keeps 18-decimal supplies as exact base-unit strings (never lossy JS numbers)", () => {
+    // 1,000,000 tokens = 1e24 base units, which a double cannot represent exactly.
+    const supply = (BigInt("1000000") * 10n ** 18n).toString();
+    expect(supply).toBe("1000000000000000000000000");
+    expect(BigInt(supply) === 10n ** 24n).toBe(true);
+    expect(String(Number(supply))).toBe("1e+24"); // what the old numeric column produced
+  });
 });
 
 describe("toTokenUnits", () => {
