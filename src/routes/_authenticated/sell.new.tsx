@@ -20,8 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/hooks/useSession";
 import { CATEGORIES, CONDITIONS, approxFiat } from "@/lib/listing-meta";
+import { fetchCurrentTerms, type CurrentTerms } from "@/lib/terms";
 
-const TERMS_VERSION = "0.1";
 const SIGNED_URL_TTL = 60 * 60 * 24 * 365 * 5;
 
 type Search = { draft?: string | undefined };
@@ -80,7 +80,26 @@ function SellWizard() {
   const [publishing, setPublishing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [terms, setTerms] = useState<CurrentTerms | null>(null);
+  const [termsError, setTermsError] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The terms version stamped on a published listing must exist in `terms_versions`,
+  // otherwise its Item Passport terms hash can never be computed. Load it live.
+  useEffect(() => {
+    let active = true;
+    fetchCurrentTerms(supabase)
+      .then((t) => {
+        if (active) setTerms(t);
+      })
+      .catch((error: unknown) => {
+        if (active) setTermsError(error instanceof Error ? error.message : "Could not load the current terms of use.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
 
   // Load or create the draft row.
   useEffect(() => {
@@ -257,6 +276,10 @@ function SellWizard() {
 
   async function publish() {
     if (!draft) return;
+    if (!terms) {
+      toast.error(termsError ?? "The current terms of use are still loading. Try again in a moment.");
+      return;
+    }
     setPublishing(true);
     await persist(draft, 6);
     await savePickup();
@@ -266,7 +289,7 @@ function SellWizard() {
         slug: slugify(draft.title),
         status: "published",
         published_at: new Date().toISOString(),
-        terms_version: TERMS_VERSION,
+        terms_version: terms.version,
       })
       .eq("id", draft.id);
     setPublishing(false);
@@ -592,10 +615,15 @@ function SellWizard() {
                 />
                 <span>
                   I own this item or have the right to sell it, it is not prohibited, and I accept
-                  the terms of use (version {TERMS_VERSION}).
+                  the terms of use{terms ? ` (version ${terms.version})` : ""}.
                 </span>
               </label>
             </div>
+            {termsError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {termsError} Publishing is paused until the terms can be loaded.
+              </p>
+            ) : null}
             {!canPublish ? (
               <p className="text-sm text-warning">
                 Add the missing details above before publishing.
@@ -629,7 +657,7 @@ function SellWizard() {
             Continue
           </Button>
         ) : (
-          <Button disabled={!canPublish || publishing} onClick={() => void publish()}>
+          <Button disabled={!canPublish || publishing || !terms} onClick={() => void publish()}>
             {publishing ? "Publishing…" : "Publish listing"}
           </Button>
         )}
