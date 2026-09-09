@@ -584,11 +584,7 @@ export async function pinBytesToIpfs(
 
 /** Pins canonical JSON to IPFS. See {@link pinBytesToIpfs}. */
 export async function pinJsonToIpfs(canonical: string, name: string): Promise<PinResult> {
-  return pinBytesToIpfs(
-    new TextEncoder().encode(canonical),
-    `${name}.json`,
-    "application/json",
-  );
+  return pinBytesToIpfs(new TextEncoder().encode(canonical), `${name}.json`, "application/json");
 }
 
 /* ---------------------------------------------------------------- Uniswap */

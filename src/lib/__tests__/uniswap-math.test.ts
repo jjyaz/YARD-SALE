@@ -259,9 +259,7 @@ describe("exact tick math", () => {
     expect(getSqrtRatioAtTick(0)).toBe(79228162514264337593543950336n);
     // MIN_TICK / MAX_TICK boundaries from Uniswap v3 TickMath.
     expect(getSqrtRatioAtTick(-887272)).toBe(4295128739n);
-    expect(getSqrtRatioAtTick(887272)).toBe(
-      1461446703485210103287273052203988822378723970342n,
-    );
+    expect(getSqrtRatioAtTick(887272)).toBe(1461446703485210103287273052203988822378723970342n);
   });
 
   it("is monotonic in the tick", () => {

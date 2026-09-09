@@ -1018,7 +1018,9 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
       );
     }
     if (step !== "wrap" && tx.value !== 0n) {
-      throw new Error("That transaction carried ETH, which this step never does. Nothing advanced.");
+      throw new Error(
+        "That transaction carried ETH, which this step never does. Nothing advanced.",
+      );
     }
 
     if (step === "wrap") {
@@ -1186,12 +1188,21 @@ export const reconcileLiquidity = createServerFn({ method: "POST" })
           "The transaction succeeded but the position manager did not mint a position NFT to your wallet in it. Nothing was saved.",
         );
       }
-      const minted = findIncreaseLiquidity(receipt.logs, pm, decodeEventLog, getAddress, mintedTokenId);
+      const minted = findIncreaseLiquidity(
+        receipt.logs,
+        pm,
+        decodeEventLog,
+        getAddress,
+        mintedTokenId,
+      );
       if (!minted)
         throw new Error(
           "The transaction succeeded but no IncreaseLiquidity event for the newly minted position was emitted. Nothing was saved.",
         );
-      if (minted.amount0 < BigInt(position.amount0_min) || minted.amount1 < BigInt(position.amount1_min)) {
+      if (
+        minted.amount0 < BigInt(position.amount0_min) ||
+        minted.amount1 < BigInt(position.amount1_min)
+      ) {
         throw new Error(
           "The amounts actually deposited are below the confirmed minimums. Nothing was saved.",
         );
@@ -1557,7 +1568,8 @@ export async function readLockState(
   position: LockStateInput,
 ) {
   const { getAddress } = await import("viem");
-  if (!position.position_token_id) throw new Error("This position has no verified position NFT yet.");
+  if (!position.position_token_id)
+    throw new Error("This position has no verified position NFT yet.");
   const pm = getAddress(position.position_manager);
   const positionId = BigInt(position.position_token_id);
   const currentOwner = await client
@@ -1624,8 +1636,7 @@ export async function readLockState(
     permanent: info.permanent,
     unlockAt,
     withdrawn: info.withdrawn,
-    withdrawable:
-      !info.permanent && !info.withdrawn && Number(info.unlockAt) * 1000 <= Date.now(),
+    withdrawable: !info.permanent && !info.withdrawn && Number(info.unlockAt) * 1000 <= Date.now(),
     collected: { amount0: collected[0].toString(), amount1: collected[1].toString() },
     owed: { amount0: pos[10].toString(), amount1: pos[11].toString() },
   };
@@ -1667,7 +1678,9 @@ export const prepareFeeCollection = createServerFn({ method: "POST" })
     }
     const state = await readLockState(client, position);
     if (!state.known || !state.locked)
-      throw new Error("The locker does not currently hold this position, so there is nothing to collect from.");
+      throw new Error(
+        "The locker does not currently hold this position, so there is nothing to collect from.",
+      );
     if (state.depositor && getAddress(state.depositor) !== getAddress(position.wallet_address))
       throw new Error("Only the original depositor wallet can collect fees for this position.");
     const owed0 = BigInt(state.owed?.amount0 ?? "0");
@@ -1712,7 +1725,9 @@ export const prepareLockWithdrawal = createServerFn({ method: "POST" })
     if (state.permanent)
       throw new Error("This lock is permanent. The position can never be withdrawn, by anyone.");
     if (!state.withdrawable)
-      throw new Error(`The lock does not expire until ${state.unlockAt}. Nothing can be withdrawn before then.`);
+      throw new Error(
+        `The lock does not expire until ${state.unlockAt}. Nothing can be withdrawn before then.`,
+      );
     if (state.depositor && getAddress(state.depositor) !== getAddress(position.wallet_address))
       throw new Error("Only the original depositor wallet can withdraw this position.");
 
@@ -1792,7 +1807,10 @@ export const reconcileLockerTx = createServerFn({ method: "POST" })
       const cleared: LiquidityUpdate = {};
       cleared[column] = null;
       await db.from("liquidity_positions").update(cleared).eq("id", position.id);
-      return { outcome: "failed" as const, message: "That transaction reverted. Nothing was saved." };
+      return {
+        outcome: "failed" as const,
+        message: "That transaction reverted. Nothing was saved.",
+      };
     }
 
     const tx = await client.getTransaction({ hash: hash as `0x${string}` });
@@ -1801,11 +1819,15 @@ export const reconcileLockerTx = createServerFn({ method: "POST" })
     if (!tx.to || getAddress(tx.to) !== locker)
       throw new Error("That transaction was not sent to the verified locker. Nothing was saved.");
     if (tx.value !== 0n)
-      throw new Error("That transaction carried ETH, which this call never does. Nothing was saved.");
+      throw new Error(
+        "That transaction carried ETH, which this call never does. Nothing was saved.",
+      );
     const call = decodeFunctionData({ abi: liquidityLockerAbi, data: tx.input });
     const expectedFn = data.kind === "collect" ? "collectFees" : "withdraw";
     if (call.functionName !== expectedFn)
-      throw new Error(`That transaction called ${call.functionName}, not ${expectedFn}. Nothing was saved.`);
+      throw new Error(
+        `That transaction called ${call.functionName}, not ${expectedFn}. Nothing was saved.`,
+      );
     if ((call.args as readonly unknown[])[0] !== positionId)
       throw new Error("That transaction is for a different position. Nothing was saved.");
 
