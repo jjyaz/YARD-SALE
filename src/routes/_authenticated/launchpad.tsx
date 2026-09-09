@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfigRequired } from "@/components/site/ConfigRequired";
 import { StatusChip } from "@/components/site/ListingCard";
+import { publicEnv } from "@/config/env";
 import { explorerAddressUrl, explorerTokenUrl, explorerTxUrl } from "@/lib/chain";
 import { shortAddress } from "@/lib/listing-meta";
 import { ipfsGatewayUrl } from "@/lib/ipfs";
@@ -658,7 +659,7 @@ function Launchpad() {
                         value={
                           <>
                             {passport.ipfs_cid}{" "}
-                            <a className="underline underline-offset-4" href={ipfsGatewayUrl(`ipfs://${passport.ipfs_cid}`)} target="_blank" rel="noreferrer">
+                            <a className="underline underline-offset-4" href={ipfsGatewayUrl(`ipfs://${passport.ipfs_cid}`, publicEnv.ipfsGateway)} target="_blank" rel="noreferrer">
                               open via gateway
                             </a>
                           </>
@@ -1044,7 +1045,7 @@ function Launchpad() {
                         <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Risks I accept</legend>
                         {LIQUIDITY_RISK_STATEMENTS.map((text, i) => (
                           <label key={text} className="flex items-start gap-3">
-                            <Checkbox checked={lpRisks[i]} onCheckedChange={(value) => setLpRisks((r) => r.map((v, j) => (j === i ? value === true : v)))} aria-label={text} />
+                            <Checkbox checked={lpRisks[i] === true} onCheckedChange={(value) => setLpRisks((r) => r.map((v, j) => (j === i ? value === true : v)))} aria-label={text} />
                             <span className="text-sm">{text}</span>
                           </label>
                         ))}

@@ -330,12 +330,69 @@ function TokenPage() {
         </p>
       )}
 
-      <section className="mt-6 rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
-        <p className="flex items-center gap-2 font-medium text-foreground">
-          <Lock className="h-4 w-4" aria-hidden="true" /> Uniswap liquidity
-        </p>
-        <p className="mt-2">Available after testnet validation and mainnet contract review.</p>
-      </section>
+      {data.liquidity ? (
+        <section className="mt-6 rounded-xl border border-border bg-card p-5 text-sm">
+          <h2 className="text-base font-bold">Uniswap v3 liquidity (verified)</h2>
+          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div>
+              <dt className="text-muted-foreground">Pool</dt>
+              <dd className="break-all font-mono text-xs">{data.liquidity.pool_address}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Fee tier / range</dt>
+              <dd>
+                {data.liquidity.fee_tier / 10_000}% · full range ({data.liquidity.tick_lower} to {data.liquidity.tick_upper})
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Seeded with</dt>
+              <dd>
+                {whole(data.liquidity.token_amount)} {data.token.symbol} + {eth(data.liquidity.eth_amount)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Position NFT</dt>
+              <dd>#{data.liquidity.position_token_id} — held by the creator, not locked</dd>
+            </div>
+          </dl>
+          <div className="mt-3 flex flex-wrap gap-4">
+            {data.liquidity.pool_address ? (
+              <a
+                className="inline-flex items-center gap-1 font-semibold underline underline-offset-4"
+                href={explorerAddressUrl(data.liquidity.chain_id, data.liquidity.pool_address)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Pool on the explorer <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
+            {data.liquidity.mint_tx_hash ? (
+              <a
+                className="inline-flex items-center gap-1 font-semibold underline underline-offset-4"
+                href={explorerTxUrl(data.liquidity.chain_id, data.liquidity.mint_tx_hash)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Position mint transaction <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            The opening ratio was chosen by the creator. The pool price is not an appraisal of the physical item, liquidity can be removed at
+            any time, and the token can go to zero.
+          </p>
+        </section>
+      ) : (
+        <section className="mt-6 rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+          <p className="flex items-center gap-2 font-medium text-foreground">
+            <Lock className="h-4 w-4" aria-hidden="true" /> Uniswap liquidity
+          </p>
+          <p className="mt-2">
+            No verified liquidity pool for this token. The creator can seed one from the Launchpad on Robinhood Chain mainnet once the
+            deployment checks pass; until then this stays locked: available after testnet validation and mainnet contract review.
+          </p>
+        </section>
+      )}
 
       <p className="mt-6 rounded-xl border border-border bg-secondary p-4 text-xs text-muted-foreground">
         {data.disclaimer}

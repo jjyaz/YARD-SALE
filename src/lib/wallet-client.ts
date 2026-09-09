@@ -68,9 +68,9 @@ export async function sendTransaction(input: {
   to: string;
   data: string;
   /** Hex-encoded wei, e.g. "0x2386f26fc10000". Omit for zero. */
-  value?: string;
+  value?: string | null | undefined;
   /** Hex-encoded gas limit if you already estimated it. */
-  gas?: string;
+  gas?: string | null | undefined;
 }): Promise<string> {
   const provider = requireProvider();
   const params: Record<string, string> = { from: input.from, to: input.to, data: input.data };
