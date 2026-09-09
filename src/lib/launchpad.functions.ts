@@ -194,9 +194,8 @@ export const freezePassportMetadata = createServerFn({ method: "POST" })
     const { requireVerifiedDeployment, pinJsonToIpfs, pinBytesToIpfs, ipfsPinningStatus } =
       await import("@/lib/launchpad.server");
     const { cidV1Raw } = await import("@/lib/ipfs");
-    const { pinListingImages, assertOnlyIpfsImages, liveVoucherBlock } = await import(
-      "@/lib/passport-freeze"
-    );
+    const { pinListingImages, assertOnlyIpfsImages, liveVoucherBlock } =
+      await import("@/lib/passport-freeze");
     const config = await requireVerifiedDeployment();
     const db = await admin();
     const { keccak256, toBytes } = await import("viem");

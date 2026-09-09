@@ -176,7 +176,9 @@ describe("YardSaleAssetRegistry — voucher-authorized minting", () => {
     });
 
     // Current metadata mints normally.
-    await expect(base.registry.connect(base.seller).mintPassport(b.voucher, URI_B_META, b.signature))
+    await expect(
+      base.registry.connect(base.seller).mintPassport(b.voucher, URI_B_META, b.signature),
+    )
       .to.emit(base.registry, "PassportMinted")
       .withArgs(1n, base.seller.address, LISTING_A, URI_B_META, METADATA_B, TERMS_HASH);
 

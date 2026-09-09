@@ -78,10 +78,7 @@ export async function pinListingImages(
  * Last line of defence before anything is saved: the frozen JSON must not carry a single
  * mutable reference — no http(s) image URL, no storage path, no signed link.
  */
-export function assertOnlyIpfsImages(metadata: {
-  image?: unknown;
-  images?: unknown;
-}): void {
+export function assertOnlyIpfsImages(metadata: { image?: unknown; images?: unknown }): void {
   const refs: unknown[] = [];
   if (metadata.image !== undefined && metadata.image !== null) refs.push(metadata.image);
   if (Array.isArray(metadata.images)) {

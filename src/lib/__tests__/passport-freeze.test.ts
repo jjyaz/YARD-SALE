@@ -187,9 +187,9 @@ describe("assertOnlyIpfsImages", () => {
         images: [{ url: "ipfs://bafk1" }],
       }),
     ).toThrow(/content-addressed/);
-    expect(() => assertOnlyIpfsImages({ image: "ipfs://bafk1", images: [{ url: "u/1/a.jpg" }] })).toThrow(
-      /content-addressed/,
-    );
+    expect(() =>
+      assertOnlyIpfsImages({ image: "ipfs://bafk1", images: [{ url: "u/1/a.jpg" }] }),
+    ).toThrow(/content-addressed/);
   });
 });
 
