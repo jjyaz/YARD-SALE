@@ -20,8 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/hooks/useSession";
 import { CATEGORIES, CONDITIONS, approxFiat } from "@/lib/listing-meta";
+import { fetchCurrentTerms, type CurrentTerms } from "@/lib/terms";
 
-const TERMS_VERSION = "0.1";
 const SIGNED_URL_TTL = 60 * 60 * 24 * 365 * 5;
 
 type Search = { draft?: string | undefined };
