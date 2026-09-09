@@ -80,7 +80,26 @@ function SellWizard() {
   const [publishing, setPublishing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [terms, setTerms] = useState<CurrentTerms | null>(null);
+  const [termsError, setTermsError] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The terms version stamped on a published listing must exist in `terms_versions`,
+  // otherwise its Item Passport terms hash can never be computed. Load it live.
+  useEffect(() => {
+    let active = true;
+    fetchCurrentTerms(supabase)
+      .then((t) => {
+        if (active) setTerms(t);
+      })
+      .catch((error: unknown) => {
+        if (active) setTermsError(error instanceof Error ? error.message : "Could not load the current terms of use.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
 
   // Load or create the draft row.
   useEffect(() => {
