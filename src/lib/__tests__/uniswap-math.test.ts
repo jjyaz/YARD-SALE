@@ -11,6 +11,9 @@ import {
   encodeSqrtPriceX96,
   formatFixed,
   fullRangeTicks,
+  getAmountsForLiquidity,
+  getSqrtRatioAtTick,
+  quoteExistingPool,
   parseFixed,
   priceFromSqrtPriceX96,
   sortTokens,
@@ -248,5 +251,116 @@ describe("stale liquidity quotes", () => {
         base * 3n,
       ),
     ).toThrow(/moved beyond/);
+  });
+});
+
+describe("exact tick math", () => {
+  it("matches Uniswap's known sqrt ratios", () => {
+    expect(getSqrtRatioAtTick(0)).toBe(79228162514264337593543950336n);
+    // MIN_TICK / MAX_TICK boundaries from Uniswap v3 TickMath.
+    expect(getSqrtRatioAtTick(-887272)).toBe(4295128739n);
+    expect(getSqrtRatioAtTick(887272)).toBe(
+      1461446703485210103287273052203988822378723970342n,
+    );
+  });
+
+  it("is monotonic in the tick", () => {
+    expect(getSqrtRatioAtTick(60)).toBeGreaterThan(getSqrtRatioAtTick(0));
+    expect(getSqrtRatioAtTick(-60)).toBeLessThan(getSqrtRatioAtTick(0));
+  });
+
+  it("rejects out-of-range ticks", () => {
+    expect(() => getSqrtRatioAtTick(900000)).toThrow();
+  });
+});
+
+describe("quoteExistingPool", () => {
+  const range = { tickLower: -887220, tickUpper: 887220 };
+
+  it("consumes both sides at a mid-range price and leaves excess on the heavy side", () => {
+    const quote = quoteExistingPool({
+      sqrtPriceX96: getSqrtRatioAtTick(0),
+      ...range,
+      amount0Max: 1000n * 10n ** 18n,
+      amount1Max: 1n * 10n ** 18n,
+      slippageBps: 100,
+    });
+    expect(quote.liquidity).toBeGreaterThan(0n);
+    expect(quote.amount0Used).toBeGreaterThan(0n);
+    expect(quote.amount1Used).toBeGreaterThan(0n);
+    // At a 1:1 price the 1000-token side cannot be fully used against 1 ETH.
+    expect(quote.amount0Excess).toBeGreaterThan(0n);
+    expect(quote.amount0Used + quote.amount0Excess).toBe(1000n * 10n ** 18n);
+    expect(quote.amount1Used + quote.amount1Excess).toBe(1n * 10n ** 18n);
+  });
+
+  it("derives minimums from the live quote, never from the requested amounts", () => {
+    const amount0Max = 500n * 10n ** 18n;
+    const amount1Max = 2n * 10n ** 18n;
+    const quote = quoteExistingPool({
+      sqrtPriceX96: getSqrtRatioAtTick(6000),
+      ...range,
+      amount0Max,
+      amount1Max,
+      slippageBps: 50,
+    });
+    expect(quote.amount0Min).toBeLessThanOrEqual(quote.amount0Used);
+    expect(quote.amount1Min).toBeLessThanOrEqual(quote.amount1Used);
+    expect(quote.amount0Min).toBeLessThan(amount0Max);
+    expect(quote.amount1Min).toBeLessThan(amount1Max);
+  });
+
+  it("produces a different quote when the pool price moves", () => {
+    const base = {
+      ...range,
+      amount0Max: 1000n * 10n ** 18n,
+      amount1Max: 1n * 10n ** 18n,
+      slippageBps: 100,
+    };
+    const before = quoteExistingPool({ sqrtPriceX96: getSqrtRatioAtTick(0), ...base });
+    const after = quoteExistingPool({ sqrtPriceX96: getSqrtRatioAtTick(20000), ...base });
+    expect(after.amount0Used).not.toBe(before.amount0Used);
+    expect(after.amount0Min).not.toBe(before.amount0Min);
+  });
+
+  it("refuses a price or range that yields no liquidity", () => {
+    expect(() =>
+      quoteExistingPool({
+        sqrtPriceX96: 0n,
+        ...range,
+        amount0Max: 1n,
+        amount1Max: 1n,
+        slippageBps: 100,
+      }),
+    ).toThrow(/positive/);
+    expect(() =>
+      quoteExistingPool({
+        sqrtPriceX96: getSqrtRatioAtTick(0),
+        tickLower: 600,
+        tickUpper: 60,
+        amount0Max: 1n,
+        amount1Max: 1n,
+        slippageBps: 100,
+      }),
+    ).toThrow(/range/);
+  });
+
+  it("round-trips liquidity back into the amounts it represents", () => {
+    const sqrtPriceX96 = getSqrtRatioAtTick(1200);
+    const quote = quoteExistingPool({
+      sqrtPriceX96,
+      ...range,
+      amount0Max: 10n ** 21n,
+      amount1Max: 10n ** 18n,
+      slippageBps: 0,
+    });
+    const amounts = getAmountsForLiquidity(
+      sqrtPriceX96,
+      getSqrtRatioAtTick(range.tickLower),
+      getSqrtRatioAtTick(range.tickUpper),
+      quote.liquidity,
+    );
+    expect(amounts.amount0).toBe(quote.amount0Used);
+    expect(amounts.amount1).toBe(quote.amount1Used);
   });
 });

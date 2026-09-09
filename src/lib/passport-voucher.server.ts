@@ -64,11 +64,15 @@ export async function platformSignerAddress(): Promise<Address> {
 }
 
 /**
- * Deterministic per-seller nonce derived from the passport row id, so retrying a failed mint
- * reuses the same voucher slot instead of leaving redeemable vouchers behind.
+ * Deterministic nonce derived from the passport row id AND the metadata version it was frozen at.
+ *
+ * Retrying a failed mint of the SAME frozen metadata reuses the same voucher slot, so no
+ * redeemable duplicates are left behind. Re-freezing bumps the version, which changes the nonce —
+ * a voucher issued for the superseded metadata can never mint the new one, and once the new
+ * version is minted the registry's nonce consumption makes the old slot unusable as well.
  */
-export function nonceForPassport(passportRowId: string): bigint {
-  return BigInt(keccak256(toBytes(passportRowId)).slice(0, 34));
+export function nonceForPassport(passportRowId: string, version = 0): bigint {
+  return BigInt(keccak256(toBytes(`${passportRowId}:v${version}`)).slice(0, 34));
 }
 
 export async function signMintVoucher(args: {

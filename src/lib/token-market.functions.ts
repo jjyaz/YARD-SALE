@@ -6,6 +6,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { defaultChain } from "@/lib/chain";
 import { companionTokenAbi } from "@/lib/abi";
 import { COMPANION_TOKEN_DISCLAIMER } from "@/lib/passport-metadata";
+import { readLockState } from "@/lib/liquidity.functions";
 
 function publicDb() {
   return createClient<Database>(
@@ -76,7 +77,7 @@ export const getTokenPage = createServerFn({ method: "POST" })
       db
         .from("liquidity_positions")
         .select(
-          "pool_address, position_token_id, liquidity, fee_tier, tick_lower, tick_upper, token_amount, eth_amount, mint_tx_hash, chain_id, confirmed_at",
+          "pool_address, position_token_id, liquidity, fee_tier, tick_lower, tick_upper, token_amount, eth_amount, mint_tx_hash, chain_id, confirmed_at, locker_address, position_manager, wallet_address, lock_tx_hash, lock_verified_at",
         )
         .eq("token_id", token.id)
         .eq("status", "confirmed")
@@ -137,6 +138,21 @@ export const getTokenPage = createServerFn({ method: "POST" })
       };
     }
 
+    // Live, verified lock state. The page never claims a lock the chain does not confirm.
+    let lock: Awaited<ReturnType<typeof readLockState>> | { known: false; error: string } | null =
+      null;
+    if (liquidity?.position_token_id) {
+      try {
+        const client = await chainClient();
+        lock = await readLockState(client, liquidity);
+      } catch (error) {
+        lock = {
+          known: false,
+          error: error instanceof Error ? error.message : "Could not read the lock state.",
+        };
+      }
+    }
+
     return {
       found: true as const,
       disclaimer: COMPANION_TOKEN_DISCLAIMER,
@@ -147,6 +163,7 @@ export const getTokenPage = createServerFn({ method: "POST" })
       offers: offers ?? [],
       onchain,
       liquidity: liquidity ?? null,
+      lock,
     };
   });
 

@@ -58,7 +58,8 @@ export type PassportMetadataInput = {
   termsVersion: string;
   termsHash: string;
   sellerHandle: string;
-  images: { url: string; sha256: string }[];
+  /** `url` is an ipfs:// URI whenever the bytes were pinned; `cid` records the verified content id. */
+  images: { url: string; sha256: string; cid?: string | null }[];
   frozenAt: string;
   chainId: number;
   registry: string;

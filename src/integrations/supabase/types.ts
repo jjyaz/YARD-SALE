@@ -206,12 +206,14 @@ export type Database = {
           created_at: string
           failure_reason: string | null
           id: string
+          image_cids: Json
           image_hashes: Json
           ipfs_cid: string | null
           ipfs_pinned_at: string | null
           last_reconciled_at: string | null
           listing_id: string
           listing_key: string
+          metadata_cid: string | null
           metadata_hash: string
           metadata_snapshot: Json
           metadata_uri: string
@@ -223,6 +225,10 @@ export type Database = {
           tx_hash: string | null
           updated_at: string
           user_id: string
+          voucher_expires_at: string | null
+          voucher_issued_at: string | null
+          voucher_nonce: string | null
+          voucher_version: number
           wallet_address: string
         }
         Insert: {
@@ -234,12 +240,14 @@ export type Database = {
           created_at?: string
           failure_reason?: string | null
           id?: string
+          image_cids?: Json
           image_hashes?: Json
           ipfs_cid?: string | null
           ipfs_pinned_at?: string | null
           last_reconciled_at?: string | null
           listing_id: string
           listing_key: string
+          metadata_cid?: string | null
           metadata_hash: string
           metadata_snapshot?: Json
           metadata_uri: string
@@ -251,6 +259,10 @@ export type Database = {
           tx_hash?: string | null
           updated_at?: string
           user_id: string
+          voucher_expires_at?: string | null
+          voucher_issued_at?: string | null
+          voucher_nonce?: string | null
+          voucher_version?: number
           wallet_address: string
         }
         Update: {
@@ -262,12 +274,14 @@ export type Database = {
           created_at?: string
           failure_reason?: string | null
           id?: string
+          image_cids?: Json
           image_hashes?: Json
           ipfs_cid?: string | null
           ipfs_pinned_at?: string | null
           last_reconciled_at?: string | null
           listing_id?: string
           listing_key?: string
+          metadata_cid?: string | null
           metadata_hash?: string
           metadata_snapshot?: Json
           metadata_uri?: string
@@ -279,6 +293,10 @@ export type Database = {
           tx_hash?: string | null
           updated_at?: string
           user_id?: string
+          voucher_expires_at?: string | null
+          voucher_issued_at?: string | null
+          voucher_nonce?: string | null
+          voucher_version?: number
           wallet_address?: string
         }
         Relationships: [
@@ -298,6 +316,9 @@ export type Database = {
           amount0_min: string
           amount1_min: string
           chain_id: number
+          collect_fees_tx_hash: string | null
+          collected_amount0: string | null
+          collected_amount1: string | null
           confirmed_at: string | null
           created_at: string
           deadline_seconds: number
@@ -305,6 +326,7 @@ export type Database = {
           factory_address: string
           failure_reason: string | null
           fee_tier: number
+          fees_collected_at: string | null
           id: string
           liquidity: string | null
           listing_id: string
@@ -312,12 +334,18 @@ export type Database = {
           lock_tx_hash: string | null
           lock_unlock_at: string | null
           lock_verified_at: string | null
+          lock_withdrawn_at: string | null
           locker_address: string | null
           mint_tx_hash: string | null
           pool_address: string | null
           pool_tx_hash: string | null
           position_manager: string
           position_token_id: string | null
+          quote_amount0_excess: string | null
+          quote_amount0_used: string | null
+          quote_amount1_excess: string | null
+          quote_amount1_used: string | null
+          quote_liquidity: string | null
           risk_accepted_at: string
           slippage_bps: number
           sqrt_price_x96: string
@@ -336,6 +364,7 @@ export type Database = {
           wallet_address: string
           weth_address: string
           weth_approve_tx_hash: string | null
+          withdraw_tx_hash: string | null
           wrap_tx_hash: string | null
         }
         Insert: {
@@ -344,6 +373,9 @@ export type Database = {
           amount0_min: string
           amount1_min: string
           chain_id: number
+          collect_fees_tx_hash?: string | null
+          collected_amount0?: string | null
+          collected_amount1?: string | null
           confirmed_at?: string | null
           created_at?: string
           deadline_seconds?: number
@@ -351,6 +383,7 @@ export type Database = {
           factory_address: string
           failure_reason?: string | null
           fee_tier?: number
+          fees_collected_at?: string | null
           id?: string
           liquidity?: string | null
           listing_id: string
@@ -358,12 +391,18 @@ export type Database = {
           lock_tx_hash?: string | null
           lock_unlock_at?: string | null
           lock_verified_at?: string | null
+          lock_withdrawn_at?: string | null
           locker_address?: string | null
           mint_tx_hash?: string | null
           pool_address?: string | null
           pool_tx_hash?: string | null
           position_manager: string
           position_token_id?: string | null
+          quote_amount0_excess?: string | null
+          quote_amount0_used?: string | null
+          quote_amount1_excess?: string | null
+          quote_amount1_used?: string | null
+          quote_liquidity?: string | null
           risk_accepted_at: string
           slippage_bps?: number
           sqrt_price_x96: string
@@ -382,6 +421,7 @@ export type Database = {
           wallet_address: string
           weth_address: string
           weth_approve_tx_hash?: string | null
+          withdraw_tx_hash?: string | null
           wrap_tx_hash?: string | null
         }
         Update: {
@@ -390,6 +430,9 @@ export type Database = {
           amount0_min?: string
           amount1_min?: string
           chain_id?: number
+          collect_fees_tx_hash?: string | null
+          collected_amount0?: string | null
+          collected_amount1?: string | null
           confirmed_at?: string | null
           created_at?: string
           deadline_seconds?: number
@@ -397,6 +440,7 @@ export type Database = {
           factory_address?: string
           failure_reason?: string | null
           fee_tier?: number
+          fees_collected_at?: string | null
           id?: string
           liquidity?: string | null
           listing_id?: string
@@ -404,12 +448,18 @@ export type Database = {
           lock_tx_hash?: string | null
           lock_unlock_at?: string | null
           lock_verified_at?: string | null
+          lock_withdrawn_at?: string | null
           locker_address?: string | null
           mint_tx_hash?: string | null
           pool_address?: string | null
           pool_tx_hash?: string | null
           position_manager?: string
           position_token_id?: string | null
+          quote_amount0_excess?: string | null
+          quote_amount0_used?: string | null
+          quote_amount1_excess?: string | null
+          quote_amount1_used?: string | null
+          quote_liquidity?: string | null
           risk_accepted_at?: string
           slippage_bps?: number
           sqrt_price_x96?: string
@@ -428,6 +478,7 @@ export type Database = {
           wallet_address?: string
           weth_address?: string
           weth_approve_tx_hash?: string | null
+          withdraw_tx_hash?: string | null
           wrap_tx_hash?: string | null
         }
         Relationships: [
@@ -928,6 +979,10 @@ export type Database = {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      storage_object_is_frozen: {
+        Args: { bucket: string; object_name: string }
         Returns: boolean
       }
     }
