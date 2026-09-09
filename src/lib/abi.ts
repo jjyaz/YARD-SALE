@@ -48,7 +48,7 @@ export const assetRegistryAbi = [
   ...roleGetters,
   {
     type: "function",
-    name: "MINTER_ROLE",
+    name: "SIGNER_ROLE",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "bytes32" }],
@@ -72,13 +72,33 @@ export const assetRegistryAbi = [
     name: "mintPassport",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "to", type: "address" },
-      { name: "listingId", type: "bytes32" },
+      {
+        name: "voucher",
+        type: "tuple",
+        components: [
+          { name: "seller", type: "address" },
+          { name: "listingId", type: "bytes32" },
+          { name: "metadataURIHash", type: "bytes32" },
+          { name: "metadataHash", type: "bytes32" },
+          { name: "termsHash", type: "bytes32" },
+          { name: "nonce", type: "uint256" },
+          { name: "expiry", type: "uint256" },
+        ],
+      },
       { name: "metadataURI", type: "string" },
-      { name: "metadataHash", type: "bytes32" },
-      { name: "termsHash", type: "bytes32" },
+      { name: "signature", type: "bytes" },
     ],
     outputs: [{ name: "tokenId", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "voucherUsed",
+    stateMutability: "view",
+    inputs: [
+      { name: "", type: "address" },
+      { name: "", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
   },
   {
     type: "function",
