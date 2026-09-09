@@ -14,7 +14,8 @@
     "verify:mainnet": "hardhat run scripts/verify-mainnet.ts --network robinhoodMainnet",
     "check:mainnet": "hardhat run scripts/check-mainnet-deployment.ts --network robinhoodMainnet",
     "simulate:mainnet": "MAINNET_FORK=true hardhat run scripts/simulate-mainnet-deploy.ts",
-    "export-abis": "node scripts/export-abis.js"
+    "export-abis": "node scripts/export-abis.js",
+    "coverage": "hardhat coverage"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

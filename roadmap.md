@@ -36,3 +36,35 @@
 - Passport lifecycle status changes (Reserved/Collected) driven by escrow in a later phase
 - Escrow contract (`YardSaleEscrow`) — separate phase after audit scope is agreed
 - Resolve the two pre-existing database linter notes (policy-less service-only table, one caller-executable security-definer function)
+
+
+## Release checks (run locally on this commit)
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Frontend tests | `npm test` | 4 files / 64 tests passing, exit 0 |
+| Lint | `npm run lint` | 0 errors, 6 warnings, exit 0 |
+| Frontend typecheck | `npx tsc --noEmit` | exit 0 |
+| Production build | `npm run build` | exit 0 |
+| Contract tests | `cd contracts && npm test` | 55 passing, exit 0 |
+| Contract typecheck | `cd contracts && npm run typecheck` | exit 0 |
+| Contract coverage | `cd contracts && npx hardhat coverage` | 100% statements on the four production contracts, exit 0 |
+
+CI (`.github/workflows/ci.yml`) runs exactly these on every push and pull request. Treat the CI run, not
+this table, as the proof.
+
+## Still open (NOT done — do not claim otherwise)
+
+- Per-image IPFS pinning with CID-vs-bytes verification before metadata is built.
+- Storage/database rules blocking edits or deletion of media behind a frozen/submitted/confirmed passport.
+- Re-freeze invalidation of an outstanding unexpired mint voucher.
+- Existing-pool liquidity requoting at live `sqrtPriceX96` with excess-amount display and reconfirmation.
+- Exhaustive per-step liquidity reconciliation (calldata, ETH value, approval spender/amount, ticks, minimums).
+- Frontend locker withdrawal, fee-collection and lock-state display on the public token page.
+- Locker runtime-bytecode-hash and deployment-manifest validation in the app.
+
+## Not built / disabled
+
+- Escrow: not built. On-chain purchase and pickup are unavailable.
+- Mainnet: `VITE_ENABLE_MAINNET=false`. No contracts deployed, no addresses configured.
+- Independent audit: none.

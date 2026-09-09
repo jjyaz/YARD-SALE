@@ -6,7 +6,13 @@
  * Exit code 0 when every check passes, 2 when any check fails, 1 on configuration errors.
  */
 import hre from "hardhat";
-import { MAINNET_CHAIN_ID, printChecks, readRecord, requireChain, validateDeployment } from "../lib/deploy-core";
+import {
+  MAINNET_CHAIN_ID,
+  printChecks,
+  readRecord,
+  requireChain,
+  validateDeployment,
+} from "../lib/deploy-core";
 
 async function main() {
   await requireChain(hre, MAINNET_CHAIN_ID);

@@ -32,7 +32,8 @@ export const ROBINHOOD_TESTNET = {
   explorerApi: "https://explorer.testnet.chain.robinhood.com/api",
 } as const;
 
-const forkUrl = process.env.MAINNET_FORK === "true" ? process.env[ROBINHOOD_MAINNET.rpcEnv] : undefined;
+const forkUrl =
+  process.env.MAINNET_FORK === "true" ? process.env[ROBINHOOD_MAINNET.rpcEnv] : undefined;
 
 /**
  * Local end-to-end rehearsals: `LOCAL_CHAIN_ID=46630 npx hardhat node` starts an in-memory chain

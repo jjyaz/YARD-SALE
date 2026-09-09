@@ -11,3 +11,6 @@ deployments/*.local.json
 deployments/robinhoodTestnet.json
 deployments/localhost.json
 deployments/hardhat.json
+
+coverage/
+coverage.json
