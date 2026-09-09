@@ -724,8 +724,10 @@ export const recordTokenSubmission = createServerFn({ method: "POST" })
       wallet_address: data.wallet.toLowerCase(),
       name: data.name.trim(),
       symbol: data.symbol.trim().toUpperCase(),
-      total_supply: data.totalSupply as unknown as number,
-      creator_allocation: data.creatorAllocation as unknown as number,
+      // Exact base-unit integers as decimal strings — never JS numbers, which lose
+      // precision above 2^53 and would make the on-chain comparison impossible.
+      total_supply: BigInt(data.totalSupply).toString(),
+      creator_allocation: BigInt(data.creatorAllocation).toString(),
       tx_hash: data.txHash,
       status: "submitted" as const,
       failure_reason: null,
