@@ -10,6 +10,7 @@ import {
   canonicalJson,
   COMPANION_TOKEN_DISCLAIMER,
   passportEligibility,
+  eligibilityLabel,
   validateTokenParams,
   type PossessionAttestation,
 } from "@/lib/passport-metadata";
