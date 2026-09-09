@@ -10,17 +10,17 @@ export const MAX_TICK = 887272;
 export const MIN_SQRT_RATIO = 4295128739n;
 export const MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342n;
 
-/** Floor square root for arbitrary-size bigints (Newton's method). */
+/** Floor square root for arbitrary-size bigints (Newton's method, monotonically decreasing from an over-estimate). */
 export function sqrtBigInt(value: bigint): bigint {
   if (value < 0n) throw new Error("Cannot take the square root of a negative number.");
   if (value < 2n) return value;
-  let x0 = value;
-  let x1 = (value >> 1n) + 1n;
-  while (x1 < x0) {
-    x0 = x1;
-    x1 = (x1 + value / x1) >> 1n;
+  let x = value;
+  let y = (value + 1n) >> 1n;
+  while (y < x) {
+    x = y;
+    y = (x + value / x) >> 1n;
   }
-  return x0;
+  return x;
 }
 
 /** Uniswap sorts pools by token address (lowercase hex compares like uint160). */
